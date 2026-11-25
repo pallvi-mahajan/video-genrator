@@ -41,7 +41,7 @@ function fill(el, entries, extra = []) {
   el.innerHTML = [...extra, ...Object.entries(entries)].map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
 }
 fill($("character"), Object.fromEntries(Object.entries(CHARACTERS).map(([k, v]) => [k, v.label])),
-  [["auto", "Auto (from description)"], ["photo", "My own photo"]]);
+  [["auto", "Auto (from description)"]]);
 fill($("scene"), SCENES, [["auto", "Auto (from description)"], ["image", "My own background image"]]);
 fill($("motion"), MOTIONS, [["auto", "Auto (from description)"]]);
 fill($("camera"), CAMERAS);
@@ -49,7 +49,8 @@ fill($("voice"), VOICES);
 fill($("music"), MUSIC, [["auto", "Auto (from description)"]]);
 
 const state = {
-  photo: null,
+  photoSrc: null, // the uploaded picture
+  photo: null, // the picture actually drawn (background removed when chosen)
   mouth: { x: 0.5, y: 0.68, w: 0.16 },
   bgImage: null,
   voiceCache: { key: "", data: null },
@@ -59,9 +60,11 @@ const state = {
 function settings() {
   const a = agent($("prompt").value);
   const choose = (id, auto) => ($(id).value === "auto" ? auto : $(id).value);
-  const character = choose("character", a.character);
+  const character = state.photoSrc ? "photo" : choose("character", a.character);
   return {
     character,
+    photoStyle: $("photo_style").value,
+    mouthOn: $("mouth_on").checked,
     scene: choose("scene", a.scene),
     motion: choose("motion", a.motion),
     music: choose("music", a.music),
@@ -75,13 +78,20 @@ function settings() {
 
 function updateAgentInfo() {
   const s = settings();
-  const ch = s.character === "photo" ? "your photo" : CHARACTERS[s.character]?.label;
-  const sc = s.character === "photo" ? "" : ` · ${s.scene === "image" ? "your background" : SCENES[s.scene]}`;
-  $("agent_info").textContent = `Agent picked: ${ch}${sc} · ${MOTIONS[s.motion] || ""} · music: ${MUSIC[s.music]}`;
-  $("photo_box").classList.toggle("hidden", $("character").value !== "photo");
-  $("char_opts").classList.toggle("hidden", $("character").value === "photo");
-  $("bg_image_box").classList.toggle("hidden", $("scene").value !== "image");
-  $("bg_color_box").classList.toggle("hidden", s.scene !== "plain");
+  const photo = s.character === "photo";
+  const full = photo && s.photoStyle === "full";
+  const ch = photo ? "your picture" : CHARACTERS[s.character]?.label;
+  const sc = full ? "" : ` · ${s.scene === "image" ? "your background" : SCENES[s.scene]}`;
+  const mv = full ? "" : ` · ${MOTIONS[s.motion] || ""}`;
+  $("agent_info").textContent = `Agent picked: ${ch}${sc}${mv} · music: ${MUSIC[s.music]}`;
+  $("photo_box").classList.toggle("hidden", !photo);
+  $("cartoon_box").classList.toggle("hidden", photo);
+  $("cutout_opts").classList.toggle("hidden", full);
+  $("scene_box").querySelector("label").classList.toggle("hidden", full);
+  $("motion_box").classList.toggle("hidden", full);
+  ["mouth_hint", "mouth_w_box"].forEach((id) => $(id).classList.toggle("hidden", !s.mouthOn));
+  $("bg_image_box").classList.toggle("hidden", full || $("scene").value !== "image");
+  $("bg_color_box").classList.toggle("hidden", full || s.scene !== "plain");
   $("color").disabled = $("color_auto").checked;
   if (!state.running) drawFrame($("stage").getContext("2d"), s, 0.6, null);
 }
@@ -102,11 +112,68 @@ function loadImage(file) {
   });
 }
 
+/** Makes the plain background around the character transparent (flood fill from the picture's edges). */
+function removeBackground(img, tol) {
+  const scale = Math.min(1, 1024 / Math.max(img.width, img.height));
+  const c = document.createElement("canvas");
+  const w = (c.width = Math.round(img.width * scale));
+  const h = (c.height = Math.round(img.height * scale));
+  const x = c.getContext("2d", { willReadFrequently: true });
+  x.drawImage(img, 0, 0, w, h);
+  const d = x.getImageData(0, 0, w, h);
+  const p = d.data;
+  const bg = new Uint8Array(w * h);
+  const queue = new Int32Array(w * h);
+  const t2 = tol * tol;
+  const near = (i, r, g, b) => p[i * 4 + 3] < 20 ||
+    (p[i * 4] - r) ** 2 + (p[i * 4 + 1] - g) ** 2 + (p[i * 4 + 2] - b) ** 2 < t2;
+  const seeds = [];
+  for (let i = 0; i < w; i++) seeds.push(i, (h - 1) * w + i);
+  for (let j = 0; j < h; j++) seeds.push(j * w, j * w + w - 1);
+  for (const s of seeds) {
+    if (bg[s]) continue;
+    const r = p[s * 4], g = p[s * 4 + 1], b = p[s * 4 + 2];
+    let head = 0, tail = 0;
+    bg[s] = 1;
+    queue[tail++] = s;
+    while (head < tail) {
+      const i = queue[head++];
+      const px = i % w;
+      for (const n of [px > 0 ? i - 1 : -1, px < w - 1 ? i + 1 : -1, i - w, i + w]) {
+        if (n < 0 || n >= w * h || bg[n] || !near(n, r, g, b)) continue;
+        bg[n] = 1;
+        queue[tail++] = n;
+      }
+    }
+  }
+  for (let i = 0; i < w * h; i++) {
+    if (bg[i]) p[i * 4 + 3] = 0;
+    else if (bg[i - 1] || bg[i + 1] || bg[i - w] || bg[i + w]) p[i * 4 + 3] = Math.min(p[i * 4 + 3], 140); // soft edge
+  }
+  x.putImageData(d, 0, 0);
+  return c;
+}
+
+function processPhoto() {
+  const img = state.photoSrc;
+  if (!img) return;
+  state.photo = $("photo_style").value === "cutout" && $("remove_bg").checked ? removeBackground(img, +$("bg_tol").value) : img;
+  drawPhotoSetup();
+}
+
 $("photo").addEventListener("change", async () => {
   if (!$("photo").files[0]) return;
-  state.photo = await loadImage($("photo").files[0]);
-  $("photo_help").classList.remove("hidden");
-  drawPhotoSetup();
+  state.photoSrc = await loadImage($("photo").files[0]);
+  processPhoto();
+  updateAgentInfo();
+});
+["photo_style", "remove_bg", "bg_tol"].forEach((id) => $(id).addEventListener("change", () => {
+  processPhoto();
+  updateAgentInfo();
+}));
+$("photo_clear").addEventListener("click", () => {
+  state.photoSrc = state.photo = null;
+  $("photo").value = "";
   updateAgentInfo();
 });
 $("bg_image").addEventListener("change", async () => {
@@ -203,14 +270,9 @@ function camera(ctx, mode, W, H, prog) {
 
 const strip = document.createElement("canvas");
 
-function drawPhoto(ctx, img, W, H, t, open, m) {
-  const s = Math.max(W / img.width, H / img.height) * (1.03 + 0.012 * Math.sin(t * 0.9));
-  const dw = img.width * s, dh = img.height * s, dx = (W - dw) / 2, dy = (H - dh) / 2;
-  ctx.save();
-  ctx.translate(W / 2, H / 2);
-  ctx.rotate(Math.sin(t * 0.7) * 0.01);
-  ctx.translate(-W / 2, -H / 2);
-  ctx.drawImage(img, dx, dy, dw, dh);
+/** Draws the user's picture at (dx, dy) with scale s, plus mouth movement for the current loudness `open`. */
+function drawPicture(ctx, img, dx, dy, s, open, m) {
+  ctx.drawImage(img, dx, dy, img.width * s, img.height * s);
   if (open > 0.04) { // "jaw drop": dark mouth + the chin area shifted down, with feathered edges
     const mw = m.w * img.width, drop = open * mw * 0.3;
     const mx = m.x * img.width, my = m.y * img.height;
@@ -240,6 +302,34 @@ function drawPhoto(ctx, img, W, H, t, open, m) {
     sc.fillRect(0, 0, strip.width, strip.height);
     ctx.drawImage(strip, dx + (mx - sw / 2) * s, dy + (my + drop) * s);
   }
+}
+
+function drawFullPhoto(ctx, img, W, H, t, open, m) {
+  const s = Math.max(W / img.width, H / img.height) * (1.03 + 0.012 * Math.sin(t * 0.9));
+  ctx.save();
+  ctx.translate(W / 2, H / 2);
+  ctx.rotate(Math.sin(t * 0.7) * 0.01);
+  ctx.translate(-W / 2, -H / 2);
+  drawPicture(ctx, img, (W - img.width * s) / 2, (H - img.height * s) / 2, s, open, m);
+  ctx.restore();
+}
+
+/** The user's picture as a character standing in the scene, moving with the chosen movement. */
+function drawPictureCharacter(ctx, img, W, H, p, open, m) {
+  const S = Math.min(H * 0.8, W * 0.9);
+  const s = Math.min(S / img.height, (W * 0.8) / img.width);
+  const dw = img.width * s, dh = img.height * s;
+  ctx.save();
+  ctx.translate(W / 2 + p.x * W, H * 0.95);
+  ctx.fillStyle = "rgba(0,0,0,0.18)";
+  ctx.beginPath();
+  ctx.ellipse(0, 0, dw * 0.35 * (1 - p.jump), S * 0.03, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.translate(0, -p.jump * S);
+  const breathe = 0.008 * Math.sin(p.t * 2.2);
+  ctx.scale(1 + p.squash - breathe * 0.5, 1 - p.squash + breathe);
+  ctx.rotate(p.lean + p.tilt * 0.5);
+  drawPicture(ctx, img, -dw / 2, -dh, s, open, m);
   ctx.restore();
 }
 
@@ -277,9 +367,13 @@ function drawFrame(ctx, s, t, audio, prog = 0) {
   const open = env ? env[Math.min(env.length - 1, Math.floor(t * 60))] || 0 : 0;
   ctx.save();
   camera(ctx, s.camera, W, H, prog);
-  if (s.character === "photo") {
-    if (state.photo) drawPhoto(ctx, state.photo, W, H, t, open, state.mouth);
-    else drawScene(ctx, "plain", W, H, t, { color: "#20243a" });
+  if (s.character === "photo" && state.photo) {
+    const mouthOpen = s.mouthOn ? open : 0;
+    if (s.photoStyle === "full") drawFullPhoto(ctx, state.photo, W, H, t, mouthOpen, state.mouth);
+    else {
+      drawScene(ctx, s.scene, W, H, t, { image: state.bgImage, color: $("bg_color").value });
+      drawPictureCharacter(ctx, state.photo, W, H, pose(s.motion, t, mouthOpen, !!env), mouthOpen, state.mouth);
+    }
   } else {
     drawScene(ctx, s.scene, W, H, t, { image: state.bgImage, color: $("bg_color").value });
     const p = pose(s.motion, t, open, !!env);

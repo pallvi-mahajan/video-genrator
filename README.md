@@ -4,7 +4,9 @@
 
 Make talking character videos for free, right in your browser: no login, no credits, no server, no GPU needed.
 
-- Characters: robot, cat, girl, boy, alien (any colour), or **your own photo** (click the mouth to animate it)
+- Characters: robot, cat, girl, boy, alien (any colour), or **upload your own picture** (photo, drawing, cartoon, pet).
+  Show it as a talking photo, or as a character standing in a scene that dances, waves, jumps and walks
+  (plain backgrounds are removed automatically). Click the mouth so it moves when talking.
 - Describe the video in plain words ("a happy robot dancing in the city at night") and the built-in agent
   picks the character, background, movement and music
 - Backgrounds: sky, city at night, garden, room, space, beach, plain colour, or your own image

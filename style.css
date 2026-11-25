@@ -24,6 +24,11 @@ legend { color: #c9b8ff; font-size: 13px; padding: 0 6px; }
 .chips button { background: #23263a; padding: 5px 10px; font-size: 12px; font-weight: 500; border-radius: 99px; }
 .hint { font-size: 12px; color: #7d8199; margin: 4px 0 12px; }
 .error { color: #ff7a7a; }
+.upload { border: 2px dashed #5b4fd6; border-radius: 10px; padding: 12px; background: #1c1a33; }
+.upload-title { color: #e6e6ea; font-size: 15px; font-weight: 600; }
+.upload .hint { margin: 0; }
+button.link { background: none; color: #ff9a9a; padding: 0 0 12px; font-size: 12px; font-weight: 500; }
+#photo_setup { background: repeating-conic-gradient(#2a2e45 0% 25%, #1c1f30 0% 50%) 0 0 / 16px 16px; }
 .hidden { display: none !important; }
 button, .btn { background: linear-gradient(90deg, #7c5cff, #4f8cff); color: #fff; border: 0; border-radius: 10px; padding: 11px 18px; font-size: 15px; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-block; }
 button.secondary { background: #2a2e45; }

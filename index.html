@@ -22,25 +22,37 @@
 
     <fieldset>
       <legend>Character</legend>
-      <label>Who is in the video? <select id="character"></select></label>
-      <div id="char_opts" class="row">
-        <label>Colour <input id="color" type="color" value="#4f8cff" /></label>
-        <label class="check"><input id="color_auto" type="checkbox" checked /> auto colour</label>
-      </div>
+      <label class="upload">
+        <span class="upload-title">Upload your own character picture</span>
+        <span class="hint">A photo of you, a drawing, a cartoon, a toy or a pet. JPG or PNG (transparent PNG works best).</span>
+        <input id="photo" type="file" accept="image/*" />
+      </label>
       <div id="photo_box" class="hidden">
-        <label>Your photo (a face looking at the camera works best)
-          <input id="photo" type="file" accept="image/*" />
-        </label>
-        <div id="photo_help" class="hidden">
-          <p class="hint">Click on the <b>mouth</b> in your photo, then adjust the mouth width.</p>
-          <canvas id="photo_setup"></canvas>
-          <label>Mouth width <input id="mouth_w" type="range" min="0.04" max="0.4" step="0.005" value="0.16" /></label>
+        <label>How to show your picture <select id="photo_style">
+          <option value="cutout">Character on a background (moves, dances, walks)</option>
+          <option value="full">Talking photo (fills the whole screen)</option>
+        </select></label>
+        <div id="cutout_opts" class="row">
+          <label class="check"><input id="remove_bg" type="checkbox" checked /> Remove plain background</label>
+          <label>Strength <input id="bg_tol" type="range" min="10" max="120" value="45" /></label>
+        </div>
+        <label class="check"><input id="mouth_on" type="checkbox" checked /> Move the mouth when talking</label>
+        <p class="hint" id="mouth_hint">Click on the <b>mouth</b> in your picture below, then adjust the mouth width.</p>
+        <canvas id="photo_setup"></canvas>
+        <label id="mouth_w_box">Mouth width <input id="mouth_w" type="range" min="0.04" max="0.4" step="0.005" value="0.16" /></label>
+        <button type="button" id="photo_clear" class="link">Remove my picture (use a cartoon character instead)</button>
+      </div>
+      <div id="cartoon_box">
+        <label>...or choose a cartoon character <select id="character"></select></label>
+        <div id="char_opts" class="row">
+          <label>Colour <input id="color" type="color" value="#4f8cff" /></label>
+          <label class="check"><input id="color_auto" type="checkbox" checked /> auto colour</label>
         </div>
       </div>
-      <label>Movement <select id="motion"></select></label>
+      <label id="motion_box">Movement <select id="motion"></select></label>
     </fieldset>
 
-    <fieldset>
+    <fieldset id="scene_box">
       <legend>Scene</legend>
       <label>Background <select id="scene"></select></label>
       <label id="bg_image_box" class="hidden">Background image <input id="bg_image" type="file" accept="image/*" /></label>
