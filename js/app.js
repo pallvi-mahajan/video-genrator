@@ -93,7 +93,8 @@ function updateAgentInfo() {
   $("bg_image_box").classList.toggle("hidden", full || $("scene").value !== "image");
   $("bg_color_box").classList.toggle("hidden", full || s.scene !== "plain");
   $("color").disabled = $("color_auto").checked;
-  if (!state.running) drawFrame($("stage").getContext("2d"), s, 0.6, null);
+  if (!state.running && !window.__cvRunning && !document.body.classList.contains("story-mode"))
+    drawFrame($("stage").getContext("2d"), s, 0.6, null);
 }
 document.querySelectorAll("input, select, textarea").forEach((el) => el.addEventListener("input", updateAgentInfo));
 $("chips").addEventListener("click", (e) => {
@@ -428,7 +429,7 @@ function pickMime() {
 
 // ---------------------------------------------------------------- run (preview or record)
 async function run(record) {
-  if (state.running) return;
+  if (state.running || window.__cvRunning) return;
   const s = settings();
   if (s.character === "photo" && !state.photo) return setStatus("Please choose your photo first.", 0, true);
   if (record && !window.MediaRecorder) return setStatus("This browser can't record video. Please use Chrome or Edge.", 0, true);
@@ -483,6 +484,7 @@ async function run(record) {
   const fmt = (x) => `${Math.floor(x / 60)}:${String(Math.floor(x % 60)).padStart(2, "0")}`;
   const stop = () => {
     state.running = null;
+    window.__cvRunning = false;
     ac.close();
     $("preview_btn").disabled = $("record_btn").disabled = false;
     $("stop_btn").disabled = true;
@@ -502,6 +504,7 @@ async function run(record) {
     recorder.stop();
   };
   state.running = { stop };
+  window.__cvRunning = true;
   const loop = () => {
     if (!state.running) return;
     const t = Math.max(0, ac.currentTime - t0);

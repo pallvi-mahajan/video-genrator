@@ -77,6 +77,47 @@ export async function synthesize(text, voice, speed, onProgress) {
   return { samples, rate, cues };
 }
 
+/** Speaks script lines ({speaker, text}) with a voice per speaker. Returns { samples, rate, cues } like synthesize(). */
+export async function speakLines(lines, voiceFor, onProgress) {
+  const tts = await loadTTS((p) => onProgress?.(`Downloading voice model (one time, ~90 MB)... ${Math.round(p * 100)}%`));
+  const parts = [];
+  for (const line of lines) for (const text of splitSentences(line.text)) parts.push({ ...line, text });
+  const chunks = [];
+  const cues = [];
+  let rate = 24000;
+  let time = 0.3;
+  for (let i = 0; i < parts.length; i++) {
+    onProgress?.(`Creating voices... line ${i + 1} of ${parts.length}`);
+    const { voice, speed } = voiceFor(parts[i].speaker);
+    const audio = await tts.generate(parts[i].text, { voice, speed });
+    rate = audio.sampling_rate;
+    const dur = audio.audio.length / rate;
+    cues.push({ start: time, end: time + dur, text: parts[i].text, speaker: parts[i].speaker });
+    chunks.push([time, audio.audio]);
+    time += dur + (parts[i + 1]?.speaker === parts[i].speaker ? 0.2 : 0.45);
+  }
+  const samples = new Float32Array(Math.ceil((time + 0.3) * rate));
+  for (const [start, data] of chunks) samples.set(data, Math.round(start * rate));
+  return { samples, rate, cues };
+}
+
+/** A short "magic sparkle" sound effect at time t. */
+export function chime(ctx, out, t) {
+  [88, 91, 95, 100, 103].forEach((n, i) => {
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = "sine";
+    o.frequency.value = 440 * 2 ** ((n - 69) / 12);
+    const s = t + i * 0.07;
+    g.gain.setValueAtTime(0, s);
+    g.gain.linearRampToValueAtTime(0.05, s + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, s + 0.6);
+    o.connect(g).connect(out);
+    o.start(s);
+    o.stop(s + 0.65);
+  });
+}
+
 /** Mouth openness (0..1) sampled `fps` times per second, from the loudness of the audio. */
 export function envelope(buffer, fps = 60) {
   const data = buffer.getChannelData(0);
@@ -105,8 +146,9 @@ const MOODS = {
   happy: { chords: [[60, 64, 67], [67, 71, 74], [69, 72, 76], [65, 69, 72]], beat: 0.5, wave: "triangle" },
   calm: { chords: [[57, 60, 64], [53, 57, 60], [60, 64, 67], [55, 59, 62]], beat: 1.0, wave: "sine" },
   epic: { chords: [[50, 57, 62], [46, 53, 58], [48, 55, 60], [45, 52, 57]], beat: 0.5, wave: "sawtooth" },
+  magical: { chords: [[65, 69, 72], [62, 65, 69], [67, 71, 74], [64, 67, 72]], beat: 0.75, wave: "sine" },
 };
-export const MUSIC = { none: "None", happy: "Happy", calm: "Calm", epic: "Epic" };
+export const MUSIC = { none: "None", happy: "Happy", calm: "Calm", magical: "Magical", epic: "Epic" };
 
 /** Schedules simple chord + arpeggio music from `start` for `duration` seconds into `out`. */
 export function scheduleMusic(ctx, out, mood, start, duration) {
