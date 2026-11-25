@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Character Video Studio</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<header>
+  <h1>Character Video Studio</h1>
+  <span class="badge">free &middot; no credits &middot; runs on your own PC or free Google Colab</span>
+  <span class="small" id="gpu"></span>
+</header>
+
+<main>
+  <form id="form" class="card">
+    <label>What should the video show? *
+      <textarea id="prompt" rows="3" placeholder="e.g. a little robot dancing happily"></textarea>
+    </label>
+    <label>Character details
+      <input id="character" placeholder="e.g. small blue robot with big round eyes" />
+    </label>
+    <label>Scene / background
+      <input id="scene" placeholder="e.g. in a neon city street at night" />
+    </label>
+
+    <fieldset>
+      <legend>Use my own picture (optional)</legend>
+      <div class="photo-row">
+        <img id="photo_preview" class="hidden" alt="your character" />
+        <div class="grow">
+          <input id="photo" type="file" accept="image/*" />
+          <button type="button" id="photo_clear" class="link hidden">remove picture</button>
+        </div>
+      </div>
+      <div id="photo_opts" class="hidden">
+        <label>How to use it <select id="photo_mode">
+          <option value="direct">Animate my photo (talking photo, keeps exact face)</option>
+          <option value="ai">AI character that looks like my photo (new animation)</option>
+        </select></label>
+        <label id="strength_wrap" class="hidden">Likeness strength: <span id="strength_val">0.7</span>
+          <input id="photo_strength" type="range" min="0.3" max="1" step="0.05" value="0.7" />
+        </label>
+      </div>
+    </fieldset>
+
+    <div class="row">
+      <label>Style <select id="style"></select></label>
+      <label>Camera <select id="camera"></select></label>
+    </div>
+    <label>Video length
+      <div class="row tight">
+        <input id="minutes" type="number" min="0" max="5" value="0" /><span class="unit">min</span>
+        <input id="seconds" type="number" min="0" max="59" value="4" /><span class="unit">sec</span>
+      </div>
+      <div class="chips" id="chips">
+        <button type="button" data-s="4">4s</button><button type="button" data-s="10">10s</button>
+        <button type="button" data-s="30">30s</button><button type="button" data-s="60">1 min</button>
+        <button type="button" data-s="120">2 min</button><button type="button" data-s="180">3 min</button>
+      </div>
+      <span class="hint" id="eta"></span>
+    </label>
+    <label>Storyboard (optional, one scene per line, used in order for each 2-sec part)
+      <textarea id="scenes" rows="3" placeholder="the robot wakes up and stretches&#10;the robot walks through the city&#10;the robot waves goodbye"></textarea>
+    </label>
+    <div class="row">
+      <label>Quality <select id="quality"></select></label>
+      <label>Finish within <select id="time_limit_min">
+        <option value="5">5 min</option>
+        <option value="10" selected>10 min</option>
+        <option value="20">20 min</option>
+        <option value="30">30 min</option>
+        <option value="0">No limit</option>
+      </select></label>
+      <label>Seed <input id="seed" type="number" value="-1" title="-1 = random" /></label>
+    </div>
+
+    <fieldset>
+      <legend>Voice &amp; lip-sync (optional)</legend>
+      <label>What should the character say?
+        <textarea id="dialogue" rows="2" placeholder="e.g. Hello friends! Welcome to my magical garden."></textarea>
+      </label>
+      <div class="row">
+        <label>Voice <select id="voice"></select></label>
+        <label>Speed <select id="voice_speed">
+          <option value="0.8">Slow</option>
+          <option value="1" selected>Normal</option>
+          <option value="1.2">Fast</option>
+        </select></label>
+      </div>
+      <label class="check"><input id="lipsync" type="checkbox" /> Lip-sync mouth to voice (best with realistic faces / your photo)</label>
+      <div class="hint">If the speech is longer than the chosen length, the video is made longer to fit it.</div>
+    </fieldset>
+    <label class="check"><input id="use_llm" type="checkbox" /> Enhance prompt with local Ollama (if installed)</label>
+    <button id="go" type="submit">Generate Video</button>
+
+    <div id="status" class="hidden">
+      <div class="stage" id="stage">Queued...</div>
+      <div class="bar"><div id="fill"></div></div>
+      <div class="hint" id="timer"></div>
+    </div>
+    <div id="result" class="hidden">
+      <video id="video" controls autoplay></video>
+      <a id="download" download class="btn">Download MP4</a>
+      <p class="small" id="meta"></p>
+    </div>
+  </form>
+
+  <section class="card">
+    <h2>My Videos</h2>
+    <div id="gallery" class="gallery"></div>
+  </section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>

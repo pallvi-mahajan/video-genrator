@@ -1,0 +1,6 @@
+.venv
+.git
+outputs
+__pycache__
+*.pyc
+*.zip
