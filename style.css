@@ -36,6 +36,12 @@ button.link { background: none; color: #ff9a9a; padding: 0 0 12px; font-size: 12
 .tab { background: #23263a; font-size: 14px; padding: 8px 14px; }
 .tab.active { background: linear-gradient(90deg, #7c5cff, #4f8cff); }
 button.small { padding: 7px 12px; font-size: 13px; }
+button.big { width: 100%; padding: 15px; font-size: 18px; margin-top: 4px; box-shadow: 0 6px 24px rgba(124, 92, 255, .35); }
+details { margin: 8px 0 14px; }
+summary { cursor: pointer; color: #a8b8ff; font-size: 13px; margin-bottom: 10px; }
+#st_presets { margin: -4px 0 4px; }
+.cast-row { display: grid; grid-template-columns: 90px 1fr 170px; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 13px; }
+@media (max-width: 600px) { .cast-row { grid-template-columns: 1fr; } }
 .row.wrap { flex-wrap: wrap; gap: 4px 14px; }
 .cast { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0 12px; }
 .scene-card { display: flex; gap: 12px; background: #11131d; border: 1px solid #23263a; border-radius: 10px; padding: 10px; margin-bottom: 10px; }

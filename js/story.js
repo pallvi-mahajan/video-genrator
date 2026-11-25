@@ -1,69 +1,90 @@
-// Story reel: paste a story script (or a one-line idea) -> AI pictures per scene -> voices -> animated reel.
+// Story reel: idea or script -> cast with fixed looks -> cinematic AI pictures per scene -> voices -> animated reel.
 import { VOICES, chime, scheduleMusic, speakLines } from "./audio.js";
+import { drawCharacter } from "./characters.js";
+import { drawScene } from "./scenes.js";
 
 const $ = (id) => document.getElementById(id);
 const IMG_API = "https://image.pollinations.ai/prompt/";
 const TEXT_API = "https://text.pollinations.ai/";
 const FREE_GAP_MS = 46_000; // free image service: 1 picture per 45 s per visitor
-const FADE = 0.7;
+const FADE = 1.0;
 
 export const STYLES = {
-  pixar: "3D Pixar style animated movie still, adorable characters, big expressive eyes, highly detailed, vibrant colours, soft cinematic lighting",
-  disney: "Disney animation style, magical storybook illustration, beautiful lighting, vibrant colours, highly detailed",
-  anime: "anime style, Studio Ghibli inspired, beautiful detailed background, soft colours",
+  cinematic: "cinematic film still from a Disney Pixar 3D animated feature film, Pixar character design, adorable expressive faces, " +
+    "big glossy eyes, soft subsurface skin, volumetric god rays, warm rim light, shallow depth of field, rich colour grading, " +
+    "highly detailed, octane render, masterpiece",
+  disney: "Disney animated movie still, magical storybook atmosphere, beautiful painterly lighting, vibrant colours, highly detailed",
+  anime: "cinematic anime film still, Studio Ghibli inspired, beautiful detailed background, soft warm light",
   watercolor: "children's book watercolour illustration, soft pastel colours, whimsical, cute",
   clay: "claymation style, cute clay characters, soft studio lighting, colourful",
 };
-const STYLE_LABELS = { pixar: "3D Pixar style", disney: "Disney storybook", anime: "Anime / Ghibli", watercolor: "Watercolour storybook", clay: "Clay animation" };
+const STYLE_LABELS = { cinematic: "Cinematic 3D (Disney/Pixar-inspired)", disney: "Disney storybook", anime: "Anime / Ghibli",
+  watercolor: "Watercolour storybook", clay: "Clay animation" };
+const NEGATIVE = "no text, no watermark, no letters";
 const FORMATS = { "9:16": [720, 1280, 576, 1024], "16:9": [1280, 720, 1024, 576], "1:1": [720, 720, 768, 768] };
+
+export const PRESETS = {
+  "Curly-haired girl": "Mia: a cheerful 6-year-old girl with big brown eyes, long curly dark-brown hair with a yellow flower clip, wearing a teal dress",
+  "Brave boy": "Arjun: a brave 7-year-old boy with short black hair, big brown eyes, wearing a red hoodie and blue jeans",
+  "Wise grandma": "Grandma Rose: a kind grandmother with grey hair in a bun, round glasses and a purple shawl",
+  "Little bee": "Buzzy: a tiny round honeybee with big shiny eyes, a black graduation cap and soft yellow-black stripes",
+  "Puppy": "Coco: a fluffy golden puppy with floppy ears, a red collar and big happy eyes",
+  "Little star": "Twinkle: a tiny glowing golden five-pointed star with big blue eyes and a cute smiling face",
+};
 
 export const EXAMPLE = `# Lily and the Lost Little Star
 
+Characters:
+Lily: a little girl with long wavy chestnut hair, big brown eyes, a pink dress, white shoes and a purple backpack
+Twinkle: a tiny glowing golden five-pointed star with big blue eyes and a cute smiling face
+
 ### Scene 1 - The Mysterious Light (0-10 seconds)
-**Visual prompt:**
-A beautiful enchanted forest at twilight. A little girl named Lily, with long wavy chestnut hair, big brown eyes, a pink dress, white shoes and a purple backpack, walks along a glowing forest path. Colourful butterflies fly around her.
-**Narration:**
-"Once upon a time, in a magical forest, lived a little girl named Lily. One evening, she discovered something sparkling in the bushes!"
-**Dialogue:**
+Visual prompt: Lily walks along a glowing path in an enchanted forest at twilight, colourful butterflies around her, a tiny golden light glows behind a magical mushroom.
+Narration: "Once upon a time, in a magical forest, lived a little girl named Lily. One evening, she discovered something sparkling in the bushes!"
+Dialogue:
 Lily: "Oh! What is that beautiful light?"
-**Sound:** Gentle magical music, soft sparkling sound.
+Sound: Gentle magical music, soft sparkling sound.
 
 ### Scene 2 - Meeting Twinkle (10-20 seconds)
-**Visual prompt:**
-Lily kneels and discovers a tiny golden five-pointed star named Twinkle with big blue eyes and a cute smiling face, floating just above the ground.
-**Dialogue:**
+Visual prompt: Lily kneels and discovers Twinkle floating just above the ground, glowing weakly.
+Dialogue:
 Twinkle: "Hello! My name is Twinkle. I fell from the sky, and now I can't fly home!"
 Lily: "Don't worry! I'll help you!"
-**Sound:** Magical twinkling sound.
+Sound: Magical twinkling sound.
 
-**Ending text:**
-"The End"`;
+Ending text: "The End"`;
 
 // ---------------------------------------------------------------- script parsing ("agent")
-const clean = (s) => s.replace(/\*\*|__|`/g, "").replace(/^[#>\-\s]+/, "").trim();
+const clean = (s) => s.replace(/\*\*|__|`/g, "").replace(/^[#>\-\s*]+/, "").trim();
 const unquote = (s) => s.trim().replace(/^["“”']+|["“”']+$/g, "").trim();
+const NAME_LINE = /^([A-Z][\w' .-]{0,30}?)\s*(?:\([^)]*\))?\s*:\s*(.+)$/;
 
 export function parseScript(text) {
-  const out = { title: "", ending: "", scenes: [] };
+  const out = { title: "", ending: "", characters: [], scenes: [] };
   let scene = null;
   let field = null;
   const fieldOf = (l) => {
-    const m = l.match(/^(visual prompt|visual|scene description|image|picture|narration|narrator|dialogue|dialog|sound|music|ending text|ending)\s*:\s*(.*)$/i);
+    const m = l.match(/^(visual prompt|visual|scene description|image|picture|narration|narrator|dialogue|dialog|sound|music|ending text|ending|main characters|characters|cast)\s*:\s*(.*)$/i);
     if (!m) return null;
     const k = m[1].toLowerCase();
-    const f = k.startsWith("visual") || k === "scene description" || k === "image" || k === "picture" ? "visual"
-      : k.startsWith("narrat") ? "narration" : k.startsWith("dialog") ? "dialogue" : k.startsWith("ending") ? "ending" : "sound";
+    const f = /^(visual|scene description|image|picture)/.test(k) ? "visual" : k.startsWith("narrat") ? "narration"
+      : k.startsWith("dialog") ? "dialogue" : k.startsWith("ending") ? "ending" : /characters|cast/.test(k) ? "characters" : "sound";
     return [f, m[2]];
   };
   const add = (f, value) => {
     if (!value) return;
     if (f === "ending") return void (out.ending = unquote(value));
+    if (f === "characters") {
+      const m = value.match(NAME_LINE);
+      if (m) out.characters.push({ name: m[1].trim(), look: unquote(m[2]) });
+      return;
+    }
     if (!scene) return;
     if (f === "visual") scene.visual += (scene.visual ? " " : "") + value;
     else if (f === "sound") scene.sound += " " + value;
     else if (f === "narration") scene.lines.push({ speaker: "Narrator", text: unquote(value) });
     else {
-      const m = value.match(/^([A-Z][\w' .-]{0,30}?)\s*(?:\([^)]*\))?\s*:\s*(.+)$/);
+      const m = value.match(NAME_LINE);
       if (m) scene.lines.push({ speaker: m[1].trim(), text: unquote(m[2]) });
       else if (scene.lines.length) scene.lines[scene.lines.length - 1].text += " " + unquote(value);
     }
@@ -88,19 +109,25 @@ export function parseScript(text) {
       add(field, f[1].trim());
       continue;
     }
-    if (field === "dialogue" && /^[A-Z][\w' .-]{0,30}?\s*(\([^)]*\))?\s*:/.test(l)) add("dialogue", l);
+    if ((field === "dialogue" || field === "characters") && NAME_LINE.test(l)) add(field, l);
     else if (field) add(field, l);
   }
   out.scenes = out.scenes.filter((s) => s.visual || s.lines.length);
   return out.scenes.length ? out : null;
 }
 
-/** Turns a short idea into a scene script with the free text AI; falls back to a simple split. */
-async function writeScript(idea, nScenes = 6) {
-  const ask = `Write a short animated kids story script for this idea: "${idea}". Use exactly ${nScenes} scenes. ` +
-    "Format each scene exactly like this:\n### Scene N - Title\nVisual prompt: (one detailed sentence describing the picture, " +
-    "always re-describe each character's look)\nNarration: \"...\"\nDialogue:\nName: \"...\"\nSound: ...\n" +
-    "Start with '# Story title' and end with 'Ending text: \"The End\"'. Keep every line short and child friendly.";
+function parseCastText(text) {
+  return text.split(/\r?\n/).map((l) => l.trim().match(NAME_LINE)).filter(Boolean)
+    .map((m) => ({ name: m[1].trim(), look: unquote(m[2]) }));
+}
+
+/** Turns a short idea into a cinematic scene script with the free text AI; falls back to a simple split. */
+async function writeScript(idea, nScenes, chars) {
+  const castLine = chars.length ? `Use these main characters (keep their names and looks): ${chars.map((c) => `${c.name} = ${c.look}`).join("; ")}. ` : "";
+  const ask = `Write a cinematic Disney/Pixar-style animated kids story with a gentle moral for this idea: "${idea}". ${castLine}` +
+    `Use exactly ${nScenes} scenes. Output ONLY this format:\n# Story title\nCharacters:\nName: detailed look (age, hair, eyes, clothes)\n` +
+    "### Scene N - Title\nVisual prompt: one vivid cinematic sentence (setting, action, emotion, lighting)\nNarration: \"...\"\n" +
+    "Dialogue:\nName: \"...\"\nSound: ...\n...and finally: Ending text: \"The End\". Keep lines short and child friendly.";
   try {
     const r = await fetch(TEXT_API + encodeURIComponent(ask) + "?seed=" + Math.floor(Math.random() * 1e6));
     if (r.ok) {
@@ -108,26 +135,36 @@ async function writeScript(idea, nScenes = 6) {
       if (parsed) return parsed;
     }
   } catch (e) {
-    console.warn("text AI failed", e);
+    console.warn("text AI not reachable", e);
   }
   const sentences = idea.match(/[^.!?]+[.!?]*/g)?.map((s) => s.trim()).filter(Boolean) || [idea];
-  return { title: "", ending: "The End", scenes: sentences.map((s) => ({ heading: "", visual: s, lines: [{ speaker: "Narrator", text: s }], sound: "", minDur: 0 })) };
+  const n = Math.max(sentences.length, Math.min(nScenes, 3));
+  const who = chars.map((c) => c.name).join(" and ");
+  return { title: "", ending: "The End", characters: chars, scenes: Array.from({ length: n }, (_, i) => {
+    const s = sentences[i % sentences.length];
+    return { heading: "", visual: who ? `${who}: ${s}` : s, lines: i < sentences.length ? [{ speaker: "Narrator", text: s }] : [],
+      sound: "", minDur: 0 };
+  }) };
 }
 
 // ---------------------------------------------------------------- cast & voices
 const FEMALE = ["af_bella", "af_nicole", "af_sarah", "bf_emma"];
 const MALE = ["am_puck", "am_michael", "am_fenrir", "bm_george"];
+const isMale = (t) => /\b(boy|man|king|prince|father|dad|brother|grandpa|grandfather|uncle|he|his|mr)\b/i.test(t);
 
-function castOf(story) {
-  const names = [...new Set(story.scenes.flatMap((s) => s.lines.map((l) => l.speaker)).filter((n) => n !== "Narrator"))];
-  const allVisual = story.scenes.map((s) => s.visual).join(" ");
-  let f = 0, m = 0;
-  return names.map((name) => {
+function buildCast(data, userChars) {
+  const byName = new Map();
+  for (const c of [...data.characters, ...userChars]) byName.set(c.name.toLowerCase(), { ...byName.get(c.name.toLowerCase()), ...c });
+  const speakers = data.scenes.flatMap((s) => s.lines.map((l) => l.speaker)).filter((n) => n !== "Narrator");
+  const allVisual = data.scenes.map((s) => s.visual).join(" ");
+  for (const name of speakers) if (!byName.has(name.toLowerCase())) {
     const sentence = allVisual.match(new RegExp(`[^.]*\\b${name}\\b[^.]*\\.`, "i"))?.[0] || "";
-    const male = /\b(boy|man|king|prince|father|dad|brother|he|his|grandpa|uncle)\b/i.test(sentence);
-    const voice = male ? MALE[m++ % MALE.length] : FEMALE[f++ % FEMALE.length];
-    return { name, look: sentence.trim(), voice, speed: 1.05 };
-  });
+    byName.set(name.toLowerCase(), { name, look: sentence.trim() });
+  }
+  let f = 0, m = 0;
+  return [...byName.values()].map((c) => ({
+    ...c, speed: 1.05, voice: c.voice || (isMale(c.look) ? MALE[m++ % MALE.length] : FEMALE[f++ % FEMALE.length]),
+  }));
 }
 
 function moodOf(sound) {
@@ -136,9 +173,12 @@ function moodOf(sound) {
     : /emotion|sad|soft|gentle|calm/.test(s) ? "calm" : /orchestr|epic|battle|dramatic/.test(s) ? "epic" : "";
 }
 
-// ---------------------------------------------------------------- free AI pictures
+// ---------------------------------------------------------------- pictures (free AI, own upload, or drawn backup)
 let lastImageAt = 0;
+let networkFails = 0;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const BLOCKED = "This internet connection blocks the free AI picture service (pollinations.ai), for example an office network. " +
+  "Using drawn backup pictures instead. For cinematic AI pictures, use a home Wi-Fi or mobile network, or upload your own.";
 
 function loadBlobImage(blob) {
   return new Promise((resolve, reject) => {
@@ -149,12 +189,8 @@ function loadBlobImage(blob) {
   });
 }
 
-const BLOCKED = "Your internet connection (e.g. an office network) blocks the free AI picture service " +
-  "(pollinations.ai). Try a home Wi-Fi or mobile hotspot, or upload your own pictures.";
-let networkFails = 0;
-
 async function aiPicture(prompt, w, h, seed, onWait) {
-  const url = `${IMG_API}${encodeURIComponent(prompt.slice(0, 1400))}?width=${w}&height=${h}&seed=${seed}&nologo=true`;
+  const url = `${IMG_API}${encodeURIComponent(prompt.slice(0, 1500))}?width=${w}&height=${h}&seed=${seed}&nologo=true&enhance=true`;
   for (let attempt = 0; attempt < 10; attempt++) {
     if (networkFails >= 3) throw new Error(BLOCKED);
     const wait = lastImageAt + FREE_GAP_MS - Date.now();
@@ -173,30 +209,74 @@ async function aiPicture(prompt, w, h, seed, onWait) {
     } catch (e) {
       console.warn("picture failed, retrying", e);
       networkFails++;
-      lastImageAt = Date.now() - FREE_GAP_MS + 5_000;
+      lastImageAt = Date.now() - FREE_GAP_MS + 4_000;
     }
   }
-  throw new Error("The free picture service is busy. Try again in a few minutes, or upload your own picture for this scene.");
+  throw new Error("The free picture service is busy. Try again in a few minutes, or upload your own picture.");
+}
+
+/** Drawn backup picture (used when AI pictures are not reachable). */
+function backupPicture(scene, cast, W, H, i) {
+  const c = document.createElement("canvas");
+  c.width = W;
+  c.height = H;
+  const ctx = c.getContext("2d");
+  const v = `${scene.visual} ${scene.sound}`.toLowerCase();
+  const bg = /space|planet|galaxy|rocket/.test(v) ? "space" : /night|star|moon|twilight/.test(v) ? "city"
+    : /forest|garden|flower|park|tree|meadow/.test(v) ? "garden" : /room|home|house|school|class|kitchen/.test(v) ? "room"
+    : /beach|sea|ocean|sand|shore/.test(v) ? "beach" : "sky";
+  drawScene(ctx, bg === "city" && !/city|street/.test(v) ? "space" : bg, W, H, i * 3.1);
+  const present = cast.filter((p) => new RegExp(`\\b${p.name}\\b`, "i").test(v + scene.lines.map((l) => l.speaker).join(" "))).slice(0, 2);
+  const colors = ["#e85d9a", "#4f8cff", "#f4a340", "#3fb37f"];
+  present.forEach((p, k) => {
+    const look = p.look.toLowerCase();
+    const type = /robot/.test(look) ? "robot"
+      : /\b(cat|kitten|dog|puppy|bunny|rabbit|bear|fox|lion|tiger|mouse|squirrel)\b/.test(look) ? "cat"
+      : /\b(alien|monster|star|bee|creature|dragon|fairy|bird|owl)\b/.test(look) ? "alien" : isMale(look) ? "boy" : "girl";
+    const S = Math.min(H * 0.55, W * 0.6);
+    ctx.save();
+    ctx.translate(W * (present.length === 1 ? 0.5 : 0.3 + k * 0.4), H * 0.92);
+    drawCharacter(ctx, type, colors[k % colors.length], { t: i, mouth: 0, blink: 0, jump: 0, squash: 0, lean: 0, tilt: 0,
+      leftArm: -0.3, rightArm: k ? 2.4 : 0.3, leftLeg: 0, rightLeg: 0 }, S);
+    ctx.restore();
+  });
+  return c;
 }
 
 // ---------------------------------------------------------------- state + UI
-const story = { data: null, cast: [], pictures: [], jobId: 0, busy: false };
+const story = { data: null, cast: [], pictures: [], jobId: 0, busy: false, scriptKey: "", backup: false };
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+function shotFor(i, n, scene) {
+  const speakers = [...new Set(scene.lines.map((l) => l.speaker).filter((s) => s !== "Narrator"))];
+  if (i === 0) return "wide establishing shot";
+  if (i === n - 1) return "wide cinematic shot, emotional ending";
+  if (speakers.length === 1) return `medium close-up shot of ${speakers[0]}`;
+  if (speakers.length > 1) return "medium two-shot, characters facing each other";
+  return ["medium shot", "low angle shot", "over-the-shoulder shot"][i % 3];
+}
 
 function promptFor(i) {
   const s = story.data.scenes[i];
-  const notes = story.cast.filter((c) => c.look && new RegExp(`\\b${c.name}\\b`, "i").test(s.visual) && !s.visual.includes(c.look))
-    .map((c) => c.look).join(" ");
-  return `${STYLES[$("st_style").value]}. ${s.visual} ${notes}`.trim();
+  const text = s.visual + " " + s.lines.map((l) => l.speaker).join(" ");
+  const present = story.cast.filter((c) => c.look && new RegExp(`\\b${c.name}\\b`, "i").test(text));
+  const castDesc = present.map((c) => `${c.name} is ${c.look}`).join(". ");
+  return `${STYLES[$("st_style").value]}, ${shotFor(i, story.data.scenes.length, s)}. ${s.visual} ${castDesc ? castDesc + "." : ""} ${NEGATIVE}`.trim();
 }
 
 function renderCast() {
   const opts = (sel) => Object.entries(VOICES).map(([v, l]) => `<option value="${v}" ${v === sel ? "selected" : ""}>${l}</option>`).join("");
-  $("st_cast").innerHTML = story.cast.map((c, i) =>
-    `<label>${esc(c.name)} <select data-cast="${i}">${opts(c.voice)}</select></label>`).join("") ||
-    `<p class="hint">No speaking characters found. Only the narrator will speak.</p>`;
+  $("st_cast").innerHTML = story.cast.map((c, i) => `
+    <div class="cast-row">
+      <b>${esc(c.name)}</b>
+      <input data-look="${i}" value="${esc(c.look)}" placeholder="How ${esc(c.name)} looks (kept the same in every scene)" />
+      <select data-cast="${i}">${opts(c.voice)}</select>
+    </div>`).join("") || `<p class="hint">No characters found. Only the narrator will speak.</p>`;
   $("st_cast").querySelectorAll("select").forEach((el) => el.addEventListener("change", () => {
     story.cast[+el.dataset.cast].voice = el.value;
+  }));
+  $("st_cast").querySelectorAll("[data-look]").forEach((el) => el.addEventListener("change", () => {
+    story.cast[+el.dataset.look].look = el.value;
   }));
 }
 
@@ -221,6 +301,7 @@ function renderScenes() {
   $("st_scenes").querySelectorAll("[data-regen]").forEach((el) => el.addEventListener("click", () => {
     story.pictures[+el.dataset.regen] = null;
     story.seedBump = (story.seedBump || 0) + 1;
+    showThumb(+el.dataset.regen);
     paintAll();
   }));
   $("st_scenes").querySelectorAll("[data-upload]").forEach((el) => el.addEventListener("change", async () => {
@@ -237,63 +318,78 @@ function showThumb(i) {
   if (!box) return;
   box.innerHTML = img ? "" : `<span>Scene ${i + 1}</span>`;
   if (img) {
-    box.appendChild(img.cloneNode());
-    $(`st_pstatus_${i}`).textContent = "";
+    const el = img instanceof HTMLCanvasElement ? new Image() : img.cloneNode();
+    if (img instanceof HTMLCanvasElement) el.src = img.toDataURL("image/jpeg", 0.7);
+    box.appendChild(el);
+    $(`st_pstatus_${i}`).textContent = img instanceof HTMLCanvasElement ? "drawn backup picture" : "";
   }
   updateReady();
 }
 
+/** Makes all missing pictures. Resolves when every scene has a picture (AI, uploaded, or drawn backup). */
 async function paintAll() {
-  if ($("st_source").value !== "ai") return;
   const job = ++story.jobId;
-  const [, , w, h] = FORMATS[$("st_format").value];
+  const [W, H, w, h] = FORMATS[$("st_format").value];
   const seed = (+$("st_seed").value || 7) + (story.seedBump || 0);
   for (let i = 0; i < story.data.scenes.length; i++) {
     if (story.pictures[i] || job !== story.jobId) continue;
     const st = $(`st_pstatus_${i}`);
+    if ($("st_source").value === "upload") {
+      st.textContent = "Please upload a picture";
+      continue;
+    }
+    if (story.backup) {
+      story.pictures[i] = backupPicture(story.data.scenes[i], story.cast, W, H, i);
+      showThumb(i);
+      continue;
+    }
     st.textContent = "Painting...";
     try {
       story.pictures[i] = await aiPicture(promptFor(i), w, h, seed, (s) => {
         st.textContent = `Waiting ${s}s (free service: 1 picture every 45 s)...`;
       });
-      if (job !== story.jobId) return;
-      st.textContent = "";
-      showThumb(i);
     } catch (e) {
-      st.textContent = e.message;
-      if (e.message === BLOCKED) {
-        $("st_ready").textContent = BLOCKED;
-        return;
-      }
+      if (e.message === BLOCKED) story.backup = true;
+      setStatus(e.message, null, e.message !== BLOCKED);
+      story.pictures[i] = backupPicture(story.data.scenes[i], story.cast, W, H, i);
     }
+    if (job !== story.jobId) return false;
+    showThumb(i);
   }
-  updateReady();
+  return story.data.scenes.every((_, i) => story.pictures[i]);
 }
 
 function updateReady() {
   const missing = story.data ? story.data.scenes.filter((_, i) => !story.pictures[i]).length : 1;
-  $("st_preview").disabled = $("st_record").disabled = !story.data || missing > 0 || story.busy;
-  $("st_ready").textContent = !story.data ? "" : missing ? `${missing} picture(s) still being made...` : "All pictures ready. Press Preview or Make video.";
+  $("st_preview").disabled = $("st_record").disabled = $("st_thumb").disabled = !story.data || missing > 0 || story.busy;
+  $("st_generate").disabled = story.busy;
+  $("st_ready").textContent = !story.data ? "" : missing ? `${missing} picture(s) still being made...` : "All pictures ready.";
 }
 
 async function prepare() {
   const text = $("st_script").value.trim();
-  if (!text) return alert("Please paste a story script or type a story idea.");
+  if (!text) {
+    alert("Please type a story idea or paste a script.");
+    return false;
+  }
   $("st_prepare").disabled = true;
-  $("st_ready").textContent = "Reading your story...";
-  story.data = parseScript(text) || (await writeScript(text, +$("st_count").value || 6));
-  story.cast = castOf(story.data);
+  setStatus("Writing the story and choosing the characters...", 0.02);
+  const userChars = parseCastText($("st_chars").value);
+  story.data = parseScript(text) || (await writeScript(text, +$("st_count").value || 6, userChars));
+  story.cast = buildCast(story.data, userChars);
   story.pictures = story.data.scenes.map(() => null);
   story.seedBump = 0;
-  $("st_title").value = story.data.title || "";
-  $("st_end").value = story.data.ending || "";
+  story.audioKey = "";
+  story.scriptKey = text + "|" + $("st_chars").value;
+  $("st_title").value = story.data.title || text.split(/[.!?\n]/)[0].slice(0, 60);
+  $("st_end").value = story.data.ending || "The End";
   $("st_plan").classList.remove("hidden");
   renderCast();
   renderScenes();
   $("st_prepare").disabled = false;
   updateReady();
-  if ($("st_source").value === "ai") paintAll();
-  else $("st_ready").textContent = "Upload one picture for each scene below.";
+  setStatus(`Story ready: ${story.data.scenes.length} scenes, characters: ${story.cast.map((c) => c.name).join(", ") || "narrator only"}.`, 0.05);
+  return true;
 }
 
 // ---------------------------------------------------------------- rendering
@@ -302,22 +398,34 @@ function rnd(seed) {
 }
 const r = rnd(9);
 const SPARKS = Array.from({ length: 70 }, () => [r(), r(), r() * 2 + 1, r() * 6, r() * 0.5 + 0.3]);
+const grain = document.createElement("canvas");
+grain.width = grain.height = 256;
+{
+  const g = grain.getContext("2d");
+  const d = g.createImageData(256, 256);
+  for (let i = 0; i < d.data.length; i += 4) {
+    const v = Math.random() * 255;
+    d.data[i] = d.data[i + 1] = d.data[i + 2] = v;
+    d.data[i + 3] = 18;
+  }
+  g.putImageData(d, 0, 0);
+}
 
 function drawCover(ctx, img, W, H, move, p) {
+  const e = p * p * (3 - 2 * p); // ease in-out: smoother, more cinematic camera
   const base = Math.max(W / img.width, H / img.height);
-  const z = { in: 1.05 + 0.15 * p, out: 1.2 - 0.15 * p }[move] || 1.14;
+  const z = { in: 1.04 + 0.14 * e, out: 1.18 - 0.14 * e, push: 1.08 + 0.22 * e }[move] || 1.14;
   const s = base * z;
   const dw = img.width * s, dh = img.height * s;
-  const px = move === "left" ? 0.5 + 0.4 * (0.5 - p) : move === "right" ? 0.5 + 0.4 * (p - 0.5) : 0.5;
-  const py = move === "up" ? 0.6 - 0.2 * p : 0.5;
+  const px = move === "left" ? 0.5 + 0.45 * (0.5 - e) : move === "right" ? 0.5 + 0.45 * (e - 0.5) : 0.5;
+  const py = move === "up" ? 0.65 - 0.3 * e : move === "push" ? 0.42 : 0.5;
   ctx.drawImage(img, (W - dw) * px, (H - dh) * py, dw, dh);
 }
 
 function sparkles(ctx, W, H, t) {
   for (const [x, y, sz, ph, sp] of SPARKS) {
     const yy = ((y - t * 0.03 * sp) % 1 + 1) % 1;
-    const a = 0.25 + 0.75 * Math.abs(Math.sin(t * 2 + ph));
-    ctx.globalAlpha = a * 0.8;
+    ctx.globalAlpha = (0.25 + 0.75 * Math.abs(Math.sin(t * 2 + ph))) * 0.8;
     ctx.fillStyle = "#fff3b0";
     ctx.beginPath();
     ctx.arc(x * W + Math.sin(t + ph) * 10, yy * H, sz * (W / 720), 0, Math.PI * 2);
@@ -326,88 +434,128 @@ function sparkles(ctx, W, H, t) {
   ctx.globalAlpha = 1;
 }
 
-function caption(ctx, cue, W, H) {
-  const size = Math.round(Math.min(W, H) * 0.05);
-  ctx.font = `700 ${size}px "Trebuchet MS", system-ui, sans-serif`;
-  ctx.textAlign = "center";
-  const words = cue.text.split(" ");
+function cinematic(ctx, W, H, t, bars) {
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter"; // soft moving light rays
+  const lx = W * (0.15 + 0.1 * Math.sin(t * 0.15));
+  const rays = ctx.createRadialGradient(lx, -H * 0.1, 0, lx, -H * 0.1, H * 0.9);
+  rays.addColorStop(0, "rgba(255,220,160,0.22)");
+  rays.addColorStop(1, "rgba(255,220,160,0)");
+  ctx.fillStyle = rays;
+  ctx.fillRect(0, 0, W, H);
+  ctx.globalCompositeOperation = "source-over";
+  const vig = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
+  vig.addColorStop(0, "rgba(0,0,0,0)");
+  vig.addColorStop(1, "rgba(0,0,20,0.5)");
+  ctx.fillStyle = vig;
+  ctx.fillRect(0, 0, W, H);
+  ctx.globalAlpha = 0.6;
+  ctx.fillStyle = ctx.createPattern(grain, "repeat");
+  ctx.translate((t * 937) % 256, (t * 611) % 256);
+  ctx.fillRect(-256, -256, W + 512, H + 512);
+  ctx.restore();
+  if (bars) { // 2.39:1 widescreen bars for landscape videos
+    const bh = (H - W / 2.39) / 2;
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, W, bh);
+    ctx.fillRect(0, H - bh, W, bh);
+  }
+}
+
+function wrap(ctx, text, maxW) {
   const lines = [];
   let line = "";
-  for (const w of words) {
-    if (ctx.measureText(line + " " + w).width > W * 0.84 && line) {
+  for (const w of text.split(" ")) {
+    if (ctx.measureText(line + " " + w).width > maxW && line) {
       lines.push(line);
       line = w;
     } else line = line ? line + " " + w : w;
   }
   lines.push(line);
-  const shown = lines.slice(0, 3);
-  const boxH = size * 1.25 * shown.length + size * (cue.speaker !== "Narrator" ? 1.6 : 0.8);
-  const y0 = H * (H > W ? 0.8 : 0.84) - boxH / 2;
-  ctx.fillStyle = "rgba(0,0,0,0.45)";
+  return lines;
+}
+
+function caption(ctx, cue, W, H) {
+  const size = Math.round(Math.min(W, H) * 0.048);
+  const font = (wt, sz) => `${wt} ${sz}px "Trebuchet MS", system-ui, sans-serif`;
+  ctx.font = font(700, size);
+  ctx.textAlign = "center";
+  const shown = wrap(ctx, cue.text, W * 0.82).slice(0, 3);
+  const named = cue.speaker !== "Narrator";
+  const boxH = size * 1.25 * shown.length + size * (named ? 1.6 : 0.8);
+  const y0 = H * (H > W ? 0.8 : 0.8) - boxH / 2;
+  ctx.fillStyle = "rgba(0,0,0,0.5)";
   ctx.beginPath();
-  ctx.roundRect(W * 0.05, y0, W * 0.9, boxH, size * 0.5);
+  ctx.roundRect(W * 0.06, y0, W * 0.88, boxH, size * 0.5);
   ctx.fill();
   let y = y0 + size * 1.1;
-  if (cue.speaker !== "Narrator") {
-    ctx.font = `800 ${Math.round(size * 0.8)}px "Trebuchet MS", system-ui, sans-serif`;
+  if (named) {
+    ctx.font = font(800, Math.round(size * 0.8));
     ctx.fillStyle = "#ffd65a";
     ctx.fillText(cue.speaker, W / 2, y);
     y += size * 1.05;
-    ctx.font = `700 ${size}px "Trebuchet MS", system-ui, sans-serif`;
+    ctx.font = font(700, size);
   }
-  ctx.fillStyle = "#fff";
+  ctx.fillStyle = cue.speaker === "Narrator" ? "#f4f1ff" : "#fff";
   for (const l of shown) {
     ctx.fillText(l, W / 2, y);
     y += size * 1.25;
   }
 }
 
-function bigText(ctx, text, W, H, alpha, y = 0.18) {
+function bigText(ctx, text, W, H, alpha, y = 0.18, scale = 1) {
   if (!text || alpha <= 0) return;
-  const size = Math.round(Math.min(W, H) * 0.085);
+  const size = Math.round(Math.min(W, H) * 0.09 * scale);
+  ctx.save();
   ctx.globalAlpha = Math.min(1, alpha);
   ctx.font = `900 ${size}px "Trebuchet MS", system-ui, sans-serif`;
   ctx.textAlign = "center";
-  ctx.lineWidth = size * 0.16;
-  ctx.strokeStyle = "rgba(60,20,90,0.9)";
-  const words = text.split(" ");
-  const lines = [];
-  let line = "";
-  for (const w of words) {
-    if (ctx.measureText(line + " " + w).width > W * 0.88 && line) {
-      lines.push(line);
-      line = w;
-    } else line = line ? line + " " + w : w;
-  }
-  lines.push(line);
+  ctx.lineJoin = "round";
+  const lines = wrap(ctx, text, W * 0.88);
   lines.forEach((l, i) => {
     const yy = H * y + i * size * 1.1;
+    const g = ctx.createLinearGradient(0, yy - size, 0, yy);
+    g.addColorStop(0, "#fff9d6");
+    g.addColorStop(1, "#ffc93c");
+    ctx.shadowColor = "rgba(0,0,0,0.6)";
+    ctx.shadowBlur = size * 0.4;
+    ctx.lineWidth = size * 0.18;
+    ctx.strokeStyle = "#3b1a6b";
     ctx.strokeText(l, W / 2, yy);
-    ctx.fillStyle = "#fff6c9";
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = g;
     ctx.fillText(l, W / 2, yy);
   });
-  ctx.globalAlpha = 1;
+  ctx.restore();
 }
 
-const MOVES = ["in", "right", "out", "left", "up"];
+const MOVES = ["in", "right", "push", "left", "out", "up"];
 
 function drawStory(ctx, tl, t, W, H) {
   const idx = tl.scenes.findIndex((s) => t < s.start + s.dur);
   const sc = tl.scenes[idx === -1 ? tl.scenes.length - 1 : idx];
-  const local = (sc_, tt) => Math.min(1, Math.max(0, (tt - sc_.start) / sc_.dur));
+  const local = (s, tt) => Math.min(1, Math.max(0, (tt - s.start) / (s.dur + FADE)));
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, W, H);
   drawCover(ctx, sc.img, W, H, sc.move, local(sc, t));
   const next = tl.scenes[tl.scenes.indexOf(sc) + 1];
   const fadeIn = next ? (t - (sc.start + sc.dur - FADE)) / FADE : 0;
   if (next && fadeIn > 0) {
     ctx.globalAlpha = Math.min(1, fadeIn);
-    drawCover(ctx, next.img, W, H, next.move, 0);
+    drawCover(ctx, next.img, W, H, next.move, local(next, t));
     ctx.globalAlpha = 1;
   }
-  if (tl.sparkles) sparkles(ctx, W, H, t);
+  if (tl.sparkles && (sc.sparkle || !tl.cinematic)) sparkles(ctx, W, H, t);
+  if (tl.cinematic) cinematic(ctx, W, H, t, W > H);
   const cue = tl.cues.find((c) => t >= c.start && t <= c.end + 0.15);
   if (cue && tl.captions) caption(ctx, cue, W, H);
-  if (t < 3.2) bigText(ctx, tl.title, W, H, t < 2.5 ? Math.min(1, t * 2) : (3.2 - t) / 0.7);
-  if (t > tl.total - 3) bigText(ctx, tl.ending, W, H, (t - (tl.total - 3)) * 1.5, 0.42);
+  if (t < 3.5) bigText(ctx, tl.title, W, H, t < 2.6 ? Math.min(1, t * 1.5) : (3.5 - t) / 0.9, W > H ? 0.3 : 0.2);
+  if (t > tl.total - 3) bigText(ctx, tl.ending, W, H, (t - (tl.total - 3)) * 1.5, 0.45, 1.1);
+  const fade = Math.max(0, 1 - t / 0.8, (t - (tl.total - 0.8)) / 0.8); // fade from / to black
+  if (fade > 0) {
+    ctx.fillStyle = `rgba(0,0,0,${Math.min(1, fade)})`;
+    ctx.fillRect(0, 0, W, H);
+  }
 }
 
 async function buildTimeline(ac) {
@@ -433,18 +581,21 @@ async function buildTimeline(ac) {
   story.data.scenes.forEach((s, i) => {
     const a = story.audio[i];
     const speech = a ? a.samples.length / a.rate : 0;
-    const dur = Math.max(minScene, speech + 0.6, $("st_use_timing").checked ? s.minDur : 0) + (i === story.data.scenes.length - 1 ? 2.5 : 0);
+    const last = i === story.data.scenes.length - 1;
+    const lead = i === 0 ? 2.2 : 0; // let the title breathe before the first line
+    const dur = Math.max(minScene, speech + 0.8, $("st_use_timing").checked ? s.minDur : 0) + lead + (last ? 3 : 0);
     let buffer = null;
     if (a) {
       buffer = ac.createBuffer(1, a.samples.length, a.rate);
       buffer.copyToChannel(a.samples, 0);
-      a.cues.forEach((c) => cues.push({ ...c, start: c.start + start, end: c.end + start }));
+      a.cues.forEach((c) => cues.push({ ...c, start: c.start + start + lead, end: c.end + start + lead }));
     }
-    scenes.push({ img: story.pictures[i], start, dur, buffer, mood: moodOf(s.sound), sparkle: /sparkl|twinkl|chime|magic/i.test(s.sound + s.visual), move: MOVES[i % MOVES.length] });
+    scenes.push({ img: story.pictures[i], start, lead, dur, buffer, mood: moodOf(s.sound),
+      sparkle: /sparkl|twinkl|chime|magic|glow|star/i.test(s.sound + s.visual), move: MOVES[i % MOVES.length] });
     start += dur;
   });
   return { W, H, scenes, cues, total: start, title: $("st_title").value.trim(), ending: $("st_end").value.trim(),
-    captions: $("st_captions").checked, sparkles: $("st_sparkles").checked };
+    captions: $("st_captions").checked, sparkles: $("st_sparkles").checked, cinematic: $("st_cinematic").checked };
 }
 
 function setStatus(msg, prog = null, error = false) {
@@ -458,92 +609,135 @@ function pickMime() {
     "video/webm;codecs=vp8,opus", "video/webm"].find((m) => window.MediaRecorder?.isTypeSupported(m)) || "";
 }
 
-async function play(record) {
-  if (story.busy || window.__cvRunning) return;
-  story.busy = window.__cvRunning = true;
-  updateReady();
-  $("result").classList.add("hidden");
-  const ac = new AudioContext();
-  let tl;
-  try {
-    tl = await buildTimeline(ac);
-  } catch (e) {
-    console.error(e);
-    setStatus("Could not create the voices: " + e.message, 0, true);
-    story.busy = window.__cvRunning = false;
+/** Plays (and optionally records) the reel. Resolves when finished. */
+function play(record, autoDownload = false) {
+  return new Promise(async (resolve) => {
+    if (story.busy || window.__cvRunning) return resolve(false);
+    story.busy = window.__cvRunning = true;
     updateReady();
-    ac.close();
-    return;
-  }
-  const canvas = $("stage");
-  canvas.width = tl.W;
-  canvas.height = tl.H;
-  const ctx = canvas.getContext("2d");
-  const master = ac.createGain();
-  const dest = ac.createMediaStreamDestination();
-  master.connect(ac.destination);
-  master.connect(dest);
-  const t0 = ac.currentTime + 0.2;
-  const musicGain = ac.createGain();
-  musicGain.gain.value = 0.55;
-  musicGain.connect(master);
-  const globalMood = $("st_music").value;
-  for (const s of tl.scenes) {
-    if (s.buffer) {
-      const src = ac.createBufferSource();
-      src.buffer = s.buffer;
-      src.connect(master);
-      src.start(t0 + s.start);
+    $("result").classList.add("hidden");
+    const ac = new AudioContext();
+    let tl;
+    try {
+      tl = await buildTimeline(ac);
+    } catch (e) {
+      console.error(e);
+      setStatus("Could not create the voices: " + e.message, 0, true);
+      story.busy = window.__cvRunning = false;
+      updateReady();
+      ac.close();
+      return resolve(false);
     }
-    const mood = globalMood === "auto" ? s.mood || "magical" : globalMood;
-    if (mood !== "none") scheduleMusic(ac, musicGain, mood, t0 + s.start, s.dur);
-    if (s.sparkle && $("st_sfx").checked) chime(ac, master, t0 + s.start + 0.3);
-  }
-  let recorder = null;
-  const chunks = [];
-  if (record) {
-    const stream = canvas.captureStream(30);
-    dest.stream.getAudioTracks().forEach((tr) => stream.addTrack(tr));
-    recorder = new MediaRecorder(stream, { mimeType: pickMime(), videoBitsPerSecond: 6_000_000 });
-    recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
-    recorder.start(1000);
-  }
-  const fmt = (x) => `${Math.floor(x / 60)}:${String(Math.floor(x % 60)).padStart(2, "0")}`;
-  let stopped = false;
-  const stop = () => {
-    if (stopped) return;
-    stopped = true;
-    story.busy = window.__cvRunning = false;
-    $("stop_btn").onclick = null;
-    ac.close();
-    updateReady();
-    if (!recorder) return setStatus("Preview finished.", 1);
-    recorder.onstop = () => {
-      const type = recorder.mimeType || "video/webm";
-      const blob = new Blob(chunks, { type });
-      const url = URL.createObjectURL(blob);
-      const ext = type.includes("mp4") ? "mp4" : "webm";
-      const name = (tl.title || "story").replace(/[^\w -]+/g, "").trim().replace(/\s+/g, "-").toLowerCase() || "story";
-      $("result_video").src = url;
-      $("download").href = url;
-      $("download").download = `${name}.${ext}`;
-      $("download").textContent = `Download video (${ext.toUpperCase()}, ${(blob.size / 1e6).toFixed(1)} MB)`;
-      $("result").classList.remove("hidden");
-      setStatus("Done! Your story video is ready below.", 1);
+    const canvas = $("stage");
+    canvas.width = tl.W;
+    canvas.height = tl.H;
+    const ctx = canvas.getContext("2d");
+    const master = ac.createGain();
+    const dest = ac.createMediaStreamDestination();
+    master.connect(ac.destination);
+    master.connect(dest);
+    const t0 = ac.currentTime + 0.2;
+    const musicGain = ac.createGain();
+    musicGain.gain.value = 0.5;
+    musicGain.connect(master);
+    const globalMood = $("st_music").value;
+    for (const s of tl.scenes) {
+      if (s.buffer) {
+        const src = ac.createBufferSource();
+        src.buffer = s.buffer;
+        src.connect(master);
+        src.start(t0 + s.start + s.lead);
+      }
+      const mood = globalMood === "auto" ? s.mood || "magical" : globalMood;
+      if (mood !== "none") scheduleMusic(ac, musicGain, mood, t0 + s.start, s.dur);
+      if (s.sparkle && $("st_sfx").checked) chime(ac, master, t0 + s.start + 0.3);
+    }
+    let recorder = null;
+    const chunks = [];
+    if (record) {
+      const stream = canvas.captureStream(30);
+      dest.stream.getAudioTracks().forEach((tr) => stream.addTrack(tr));
+      recorder = new MediaRecorder(stream, { mimeType: pickMime(), videoBitsPerSecond: 8_000_000 });
+      recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+      recorder.start(1000);
+    }
+    const fmt = (x) => `${Math.floor(x / 60)}:${String(Math.floor(x % 60)).padStart(2, "0")}`;
+    let stopped = false;
+    const stop = () => {
+      if (stopped) return;
+      stopped = true;
+      story.busy = window.__cvRunning = false;
+      $("stop_btn").onclick = null;
+      ac.close();
+      updateReady();
+      if (!recorder) {
+        setStatus("Preview finished.", 1);
+        return resolve(true);
+      }
+      recorder.onstop = () => {
+        const type = recorder.mimeType || "video/webm";
+        const blob = new Blob(chunks, { type });
+        const url = URL.createObjectURL(blob);
+        const ext = type.includes("mp4") ? "mp4" : "webm";
+        const name = (tl.title || "story").replace(/[^\w -]+/g, "").trim().replace(/\s+/g, "-").toLowerCase() || "story";
+        $("result_video").src = url;
+        $("download").href = url;
+        $("download").download = `${name}.${ext}`;
+        $("download").textContent = `Download video (${ext.toUpperCase()}, ${(blob.size / 1e6).toFixed(1)} MB)`;
+        $("result").classList.remove("hidden");
+        setStatus("Done! Your story video is ready below" + (autoDownload ? " and has been downloaded." : "."), 1);
+        if (autoDownload) $("download").click();
+        resolve(true);
+      };
+      recorder.stop();
     };
-    recorder.stop();
-  };
-  $("stop_btn").disabled = false;
-  $("stop_btn").onclick = stop;
-  const loop = () => {
-    if (stopped) return;
-    const t = Math.max(0, ac.currentTime - t0);
-    drawStory(ctx, tl, Math.min(t, tl.total - 0.01), tl.W, tl.H);
-    setStatus(`${record ? "Recording" : "Preview"} ${fmt(t)} / ${fmt(tl.total)}` + (record ? " - keep this tab open and visible" : ""), t / tl.total);
-    if (t >= tl.total) return stop();
+    $("stop_btn").disabled = false;
+    $("stop_btn").onclick = stop;
+    const loop = () => {
+      if (stopped) return;
+      const t = Math.max(0, ac.currentTime - t0);
+      drawStory(ctx, tl, Math.min(t, tl.total - 0.01), tl.W, tl.H);
+      setStatus(`${record ? "Recording" : "Preview"} ${fmt(t)} / ${fmt(tl.total)}` + (record ? " - keep this tab open and visible" : ""), t / tl.total);
+      if (t >= tl.total) return stop();
+      requestAnimationFrame(loop);
+    };
     requestAnimationFrame(loop);
-  };
-  requestAnimationFrame(loop);
+  });
+}
+
+/** One click: story -> characters -> pictures -> voices -> recorded video (downloaded automatically). */
+async function generateAll() {
+  if (story.busy) return;
+  const text = $("st_script").value.trim();
+  if (!story.data || story.scriptKey !== text + "|" + $("st_chars").value) {
+    if (!(await prepare())) return;
+  }
+  $("st_generate").disabled = true;
+  setStatus("Making the pictures for every scene...", 0.1);
+  const ok = await paintAll();
+  if (!ok) {
+    $("st_generate").disabled = false;
+    return setStatus("Some scenes still need a picture. Upload them in the scene list, then press Generate video again.", null, true);
+  }
+  await play(true, true);
+  $("st_generate").disabled = false;
+}
+
+function thumbnail() {
+  const c = document.createElement("canvas");
+  c.width = 1280;
+  c.height = 720;
+  const ctx = c.getContext("2d");
+  const img = story.pictures.find(Boolean);
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, 1280, 720);
+  if (img) drawCover(ctx, img, 1280, 720, "in", 0.5);
+  cinematic(ctx, 1280, 720, 0, false);
+  bigText(ctx, $("st_title").value || "My Story", 1280, 720, 1, 0.2, 1.5);
+  const a = document.createElement("a");
+  a.href = c.toDataURL("image/jpeg", 0.92);
+  a.download = "thumbnail.jpg";
+  a.click();
 }
 
 // ---------------------------------------------------------------- wiring
@@ -551,15 +745,25 @@ export function initStory() {
   $("st_style").innerHTML = Object.entries(STYLE_LABELS).map(([k, l]) => `<option value="${k}">${l}</option>`).join("");
   $("st_narrator").innerHTML = Object.entries(VOICES).map(([k, l]) => `<option value="${k}">${l}</option>`).join("");
   $("st_narrator").value = "af_heart";
+  $("st_presets").innerHTML = Object.keys(PRESETS).map((k) => `<button type="button" data-preset="${esc(k)}">${esc(k)}</button>`).join("");
+  $("st_presets").addEventListener("click", (e) => {
+    const k = e.target.dataset.preset;
+    if (!k) return;
+    const box = $("st_chars");
+    box.value = (box.value.trim() ? box.value.trim() + "\n" : "") + PRESETS[k];
+  });
   $("st_example").addEventListener("click", () => ($("st_script").value = EXAMPLE));
-  $("st_prepare").addEventListener("click", prepare);
+  $("st_prepare").addEventListener("click", async () => {
+    if (await prepare()) paintAll();
+  });
+  $("st_generate").addEventListener("click", generateAll);
   $("st_preview").addEventListener("click", () => play(false));
   $("st_record").addEventListener("click", () => play(true));
+  $("st_thumb").addEventListener("click", thumbnail);
   $("st_style").addEventListener("change", () => {
-    if (!story.data || $("st_source").value !== "ai") return;
+    if (!story.data) return;
     story.pictures = story.data.scenes.map(() => null);
     story.data.scenes.forEach((_, i) => showThumb(i));
-    paintAll();
   });
   $("st_narrator").addEventListener("change", renderCast);
   updateReady();
@@ -572,5 +776,5 @@ export function initStory() {
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 720, 1280);
   sparkles(ctx, 720, 1280, 1);
-  bigText(ctx, "Your story reel appears here", 720, 1280, 1, 0.45);
+  bigText(ctx, "Your story reel appears here", 720, 1280, 1, 0.45, 0.8);
 }

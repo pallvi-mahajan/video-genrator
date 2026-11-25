@@ -19,30 +19,41 @@
 
 <main>
   <section class="card form" id="story_section">
-    <label>Paste your story script, or just type a story idea
-      <textarea id="st_script" rows="9" placeholder="Paste a full script with scenes (Visual prompt / Narration / Dialogue / Sound)...&#10;&#10;...or just an idea, e.g.: A little girl and a tiny star become best friends in a magical forest"></textarea>
+    <label>What is your story about? Type an idea, or paste a full script
+      <textarea id="st_script" rows="6" placeholder="e.g. Mia learns to share her toys with her little brother at the park&#10;&#10;...or paste a full script with scenes (Visual prompt / Narration / Dialogue / Sound)"></textarea>
     </label>
+    <label>Your characters (optional, the same look is kept in every scene)
+      <textarea id="st_chars" rows="3" placeholder="Name: how they look&#10;e.g. Mia: a 6-year-old girl with long curly dark-brown hair, big brown eyes, teal dress"></textarea>
+    </label>
+    <div class="chips" id="st_presets"></div>
+    <p class="hint">No characters? The AI creates them from your story.</p>
     <div class="row">
-      <button type="button" id="st_example" class="secondary small">Use example story</button>
-      <label>Scenes (for an idea) <input id="st_count" type="number" min="2" max="15" value="6" /></label>
-    </div>
-    <div class="row">
-      <label>Picture style <select id="st_style"></select></label>
+      <label>Style <select id="st_style"></select></label>
       <label>Format <select id="st_format">
         <option value="9:16">9:16 (Reels / Shorts)</option>
         <option value="16:9">16:9 (YouTube)</option>
         <option value="1:1">1:1 (Square)</option>
       </select></label>
+      <label>Scenes <input id="st_count" type="number" min="2" max="15" value="6" /></label>
     </div>
-    <div class="row">
-      <label>Pictures <select id="st_source">
-        <option value="ai">Make them with free AI (pollinations.ai)</option>
-        <option value="upload">I will upload my own pictures</option>
-      </select></label>
-      <label>Look seed <input id="st_seed" type="number" value="7" title="Same number = same look. Change for different pictures." /></label>
-    </div>
-    <button type="button" id="st_prepare">1. Create scenes &amp; pictures</button>
-    <p class="hint">Free AI pictures arrive one every ~45 seconds (free limit, no login). A 6-scene story takes about 5 minutes.</p>
+    <button type="button" id="st_generate" class="big">Generate video</button>
+    <p class="hint">One click: writes the story, creates the characters and cinematic pictures, adds voices, music and subtitles, then
+      records and downloads the video. Free AI pictures come one every ~45 s, so 6 scenes take about 5 minutes. Keep this tab open.</p>
+
+    <details>
+      <summary>More options</summary>
+      <div class="row">
+        <label>Pictures <select id="st_source">
+          <option value="ai">Make them with free AI (pollinations.ai)</option>
+          <option value="upload">I will upload my own pictures</option>
+        </select></label>
+        <label>Look seed <input id="st_seed" type="number" value="7" title="Same number = same look. Change for different pictures." /></label>
+      </div>
+      <div class="row">
+        <button type="button" id="st_example" class="secondary small">Use example story</button>
+        <button type="button" id="st_prepare" class="secondary small">Only create scenes (edit before recording)</button>
+      </div>
+    </details>
 
     <div id="st_plan" class="hidden">
       <div class="row">
@@ -50,9 +61,9 @@
         <label>Ending text <input id="st_end" /></label>
       </div>
       <fieldset>
-        <legend>Voices</legend>
-        <label>Narrator <select id="st_narrator"></select></label>
-        <div id="st_cast" class="cast"></div>
+        <legend>Characters &amp; voices</legend>
+        <label>Narrator voice <select id="st_narrator"></select></label>
+        <div id="st_cast"></div>
       </fieldset>
       <fieldset>
         <legend>Look &amp; sound</legend>
@@ -65,6 +76,7 @@
           <label>Min. seconds per scene <input id="st_min" type="number" min="2" max="30" value="4" /></label>
         </div>
         <div class="row wrap">
+          <label class="check"><input id="st_cinematic" type="checkbox" checked /> Cinematic look (light, vignette, film grain)</label>
           <label class="check"><input id="st_captions" type="checkbox" checked /> Subtitles</label>
           <label class="check"><input id="st_sparkles" type="checkbox" checked /> Magic sparkles</label>
           <label class="check"><input id="st_sfx" type="checkbox" checked /> Sparkle sounds</label>
@@ -76,8 +88,9 @@
     </div>
     <p class="hint" id="st_ready"></p>
     <div class="buttons">
-      <button type="button" id="st_preview" class="secondary" disabled>2. Preview</button>
-      <button type="button" id="st_record" disabled>3. Make video</button>
+      <button type="button" id="st_preview" class="secondary" disabled>Preview</button>
+      <button type="button" id="st_record" class="secondary" disabled>Record again</button>
+      <button type="button" id="st_thumb" class="secondary" disabled>Download thumbnail</button>
     </div>
   </section>
 
