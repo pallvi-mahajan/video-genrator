@@ -1,5 +1,5 @@
 // Story reel: idea or script -> cast with fixed looks -> cinematic AI pictures per scene -> voices -> animated reel.
-import { VOICES, chime, scheduleMusic, speakLines } from "./audio.js";
+import { VOICES, chime, envelope, scheduleMusic, speakLines } from "./audio.js";
 import { drawCharacter } from "./characters.js";
 import { drawScene } from "./scenes.js";
 
@@ -8,6 +8,7 @@ const IMG_API = "https://image.pollinations.ai/prompt/";
 const TEXT_API = "https://text.pollinations.ai/";
 const FREE_GAP_MS = 46_000; // free image service: 1 picture per 45 s per visitor
 const FADE = 1.0;
+const load3D = () => import("./three3d.js");
 
 export const STYLES = {
   cinematic: "cinematic film still from a Disney Pixar 3D animated feature film, Pixar character design, adorable expressive faces, " +
@@ -178,7 +179,7 @@ let lastImageAt = 0;
 let networkFails = 0;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const BLOCKED = "This internet connection blocks the free AI picture service (pollinations.ai), for example an office network. " +
-  "Using drawn backup pictures instead. For cinematic AI pictures, use a home Wi-Fi or mobile network, or upload your own.";
+  "Using real-time 3D animated scenes instead. For AI pictures, use a home Wi-Fi or mobile network, or upload your own.";
 
 function loadBlobImage(blob) {
   return new Promise((resolve, reject) => {
@@ -339,6 +340,28 @@ function showOnStage(i) {
   bigText(ctx, `Scene ${i + 1}`, W, H, 0.9, 0.1, 0.6);
 }
 
+function spec3D(i) {
+  const s = story.data.scenes[i];
+  return { text: `${s.visual} ${s.sound} ${s.lines.map((l) => l.text).join(" ")}`, index: i, count: story.data.scenes.length,
+    speakers: [...new Set(s.lines.map((l) => l.speaker).filter((n) => n !== "Narrator"))] };
+}
+
+/** A preview frame of the real-time 3D scene (used as the scene's thumbnail). */
+async function picture3D(i) {
+  const [W, H] = FORMATS[$("st_format").value];
+  try {
+    const { buildScene3D } = await load3D();
+    const sc = buildScene3D(spec3D(i), story.cast, W, H);
+    const snap = sc.snapshot();
+    sc.dispose();
+    snap.is3D = true;
+    return snap;
+  } catch (e) {
+    console.error("3D failed", e);
+    return backupPicture(story.data.scenes[i], story.cast, W, H, i);
+  }
+}
+
 function showThumb(i) {
   const img = story.pictures[i];
   const box = $(`st_thumb_${i}`);
@@ -348,7 +371,7 @@ function showThumb(i) {
     const el = img instanceof HTMLCanvasElement ? new Image() : img.cloneNode();
     if (img instanceof HTMLCanvasElement) el.src = img.toDataURL("image/jpeg", 0.7);
     box.appendChild(el);
-    $(`st_pstatus_${i}`).textContent = (img instanceof HTMLCanvasElement ? "drawn backup picture. " : "") +
+    $(`st_pstatus_${i}`).textContent = (img.is3D ? "Real-time 3D scene. " : img instanceof HTMLCanvasElement ? "drawn backup picture. " : "") +
       (stepMode() && !story.approved[i] ? "Check this scene in the preview." : stepMode() ? "Approved" : "");
   }
   const ok = document.querySelector(`[data-ok="${i}"]`);
@@ -374,9 +397,16 @@ async function paintAll() {
       st.textContent = "Please upload a picture";
       continue;
     }
-    if (story.backup) {
-      story.pictures[i] = backupPicture(story.data.scenes[i], story.cast, W, H, i);
+    if (story.backup || $("st_source").value === "3d") {
+      st.textContent = "Building 3D scene...";
+      story.pictures[i] = await picture3D(i);
+      if (job !== story.jobId) return false;
       showThumb(i);
+      if (stepMode()) {
+        showOnStage(i);
+        setStatus(`Scene ${i + 1} is ready. Check it in the preview, then press "Looks good" (or "New picture") in the scene list.`);
+        break;
+      }
       continue;
     }
     st.textContent = "Painting...";
@@ -388,7 +418,7 @@ async function paintAll() {
       if (story.cancelled) return false;
       if (e.message === BLOCKED) story.backup = true;
       setStatus(e.message, null, e.message !== BLOCKED);
-      story.pictures[i] = backupPicture(story.data.scenes[i], story.cast, W, H, i);
+      story.pictures[i] = e.message === BLOCKED ? await picture3D(i) : backupPicture(story.data.scenes[i], story.cast, W, H, i);
     }
     if (job !== story.jobId) return false;
     showThumb(i);
@@ -579,18 +609,26 @@ function bigText(ctx, text, W, H, alpha, y = 0.18, scale = 1) {
 
 const MOVES = ["in", "right", "push", "left", "out", "up"];
 
+function visual(ctx, tl, s, t, p) {
+  if (!s.three) return drawCover(ctx, s.img, tl.W, tl.H, s.move, p);
+  const cue = tl.cues.find((c) => t >= c.start && t <= c.end);
+  const speaker = cue && cue.scene === s ? cue.speaker : null;
+  const open = s.env ? s.env[Math.max(0, Math.floor((t - s.start - s.lead) * 60))] || 0 : 0;
+  s.three.render(ctx, t, t - s.start, Math.min(1, (t - s.start) / s.dur), speaker, open);
+}
+
 function drawStory(ctx, tl, t, W, H) {
   const idx = tl.scenes.findIndex((s) => t < s.start + s.dur);
   const sc = tl.scenes[idx === -1 ? tl.scenes.length - 1 : idx];
   const local = (s, tt) => Math.min(1, Math.max(0, (tt - s.start) / (s.dur + FADE)));
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, W, H);
-  drawCover(ctx, sc.img, W, H, sc.move, local(sc, t));
+  visual(ctx, tl, sc, t, local(sc, t));
   const next = tl.scenes[tl.scenes.indexOf(sc) + 1];
   const fadeIn = next ? (t - (sc.start + sc.dur - FADE)) / FADE : 0;
   if (next && fadeIn > 0) {
     ctx.globalAlpha = Math.min(1, fadeIn);
-    drawCover(ctx, next.img, W, H, next.move, local(next, t));
+    visual(ctx, tl, next, t, local(next, t));
     ctx.globalAlpha = 1;
   }
   if (tl.sparkles && (sc.sparkle || !tl.cinematic)) sparkles(ctx, W, H, t);
@@ -613,36 +651,59 @@ async function buildTimeline(ac) {
     return { voice: c?.voice || "af_bella", speed: c?.speed || 1.05 };
   };
   const key = JSON.stringify([story.data.scenes.map((s) => s.lines), story.cast.map((c) => c.voice), $("st_narrator").value]);
+  story.voiceError = "";
   if (story.audioKey !== key) {
     story.audio = [];
     for (let i = 0; i < story.data.scenes.length; i++) {
       const lines = story.data.scenes[i].lines;
       if (story.cancelled) throw new Error("Stopped.");
-      story.audio[i] = lines.length ? await speakLines(lines, voiceOf, (m) => setStatus(`Scene ${i + 1}: ${m}`)) : null;
+      try {
+        story.audio[i] = lines.length ? await speakLines(lines, voiceOf, (m) => setStatus(`Scene ${i + 1}: ${m}`)) : null;
+      } catch (e) {
+        console.error("voice failed", e);
+        story.voiceError = "The voice model could not be downloaded on this connection, so this video has music and subtitles but no voice.";
+        story.audio = story.data.scenes.map(() => null);
+        break;
+      }
     }
-    story.audioKey = key;
+    if (!story.voiceError) story.audioKey = key;
   }
   const [W, H] = FORMATS[$("st_format").value];
   const scenes = [];
   const cues = [];
   let start = 0;
   const minScene = +$("st_min").value || 4;
-  story.data.scenes.forEach((s, i) => {
-    const a = story.audio[i];
-    const speech = a ? a.samples.length / a.rate : 0;
+  const three3d = story.pictures.some((p) => p?.is3D) ? await load3D() : null;
+  for (const [i, s] of story.data.scenes.entries()) {
+    let a = story.audio[i];
+    if (!a && s.lines.length) { // no voice available: still time the subtitles (~2.6 words per second)
+      let tt = 0.3;
+      const fake = s.lines.map((l) => {
+        const d = Math.max(1.5, l.text.split(/\s+/).length / 2.6);
+        const c = { start: tt, end: tt + d, text: l.text, speaker: l.speaker };
+        tt += d + 0.4;
+        return c;
+      });
+      a = { cues: fake, silent: tt };
+    }
+    const speech = a ? (a.silent ?? a.samples.length / a.rate) : 0;
     const last = i === story.data.scenes.length - 1;
     const lead = i === 0 ? 2.2 : 0; // let the title breathe before the first line
     const dur = Math.max(minScene, speech + 0.8, $("st_use_timing").checked ? s.minDur : 0) + lead + (last ? 3 : 0);
     let buffer = null;
     if (a) {
-      buffer = ac.createBuffer(1, a.samples.length, a.rate);
-      buffer.copyToChannel(a.samples, 0);
-      a.cues.forEach((c) => cues.push({ ...c, start: c.start + start + lead, end: c.end + start + lead }));
+      if (a.samples) {
+        buffer = ac.createBuffer(1, a.samples.length, a.rate);
+        buffer.copyToChannel(a.samples, 0);
+      }
+      a.cues.forEach((c) => cues.push({ ...c, start: c.start + start + lead, end: c.end + start + lead, sceneIndex: i }));
     }
-    scenes.push({ img: story.pictures[i], start, lead, dur, buffer, mood: moodOf(s.sound),
+    const three = story.pictures[i]?.is3D ? three3d.buildScene3D(spec3D(i), story.cast, W, H) : null;
+    scenes.push({ img: story.pictures[i], three, env: three && buffer ? envelope(buffer) : null, start, lead, dur, buffer, mood: moodOf(s.sound),
       sparkle: /sparkl|twinkl|chime|magic|glow|star/i.test(s.sound + s.visual), move: MOVES[i % MOVES.length] });
     start += dur;
-  });
+  }
+  for (const c of cues) c.scene = scenes[c.sceneIndex];
   return { W, H, scenes, cues, total: start, title: $("st_title").value.trim(), ending: $("st_end").value.trim(),
     captions: $("st_captions").checked, sparkles: $("st_sparkles").checked, cinematic: $("st_cinematic").checked };
 }
@@ -718,6 +779,7 @@ function play(record, autoDownload = false) {
       story.busy = window.__cvRunning = false;
       $("stop_btn").onclick = null;
       $("stop_btn").disabled = true;
+      tl.scenes.forEach((s) => s.three?.dispose());
       ac.close();
       updateReady();
       if (!recorder) {
@@ -735,7 +797,8 @@ function play(record, autoDownload = false) {
         $("download").download = `${name}.${ext}`;
         $("download").textContent = `Download video (${ext.toUpperCase()}, ${(blob.size / 1e6).toFixed(1)} MB)`;
         $("result").classList.remove("hidden");
-        setStatus("Done! Your story video is ready below" + (autoDownload ? " and has been downloaded." : "."), 1);
+        setStatus("Done! Your story video is ready below" + (autoDownload ? " and has been downloaded." : ".") +
+          (story.voiceError ? " " + story.voiceError : ""), 1, !!story.voiceError);
         if (autoDownload) $("download").click();
         resolve(true);
       };

@@ -38,14 +38,15 @@
     </div>
     <label class="check"><input id="st_step" type="checkbox" /> Check each scene before making the next one</label>
     <button type="button" id="st_generate" class="big">Generate video</button>
-    <p class="hint">One click: writes the story, creates the characters and cinematic pictures, adds voices, music and subtitles, then
-      records and downloads the video. Free AI pictures come one every ~45 s, so 6 scenes take about 5 minutes. Keep this tab open.</p>
+    <p class="hint">One click: writes the story, builds the 3D characters and worlds, animates them (talking, blinking, walking,
+      waving...), adds voices, music and subtitles, then records and downloads the video. Keep this tab open.</p>
 
     <details>
       <summary>More options</summary>
       <div class="row">
         <label>Pictures <select id="st_source">
-          <option value="ai">Make them with free AI (pollinations.ai)</option>
+          <option value="3d" selected>Real-time 3D animated characters (works on any network)</option>
+          <option value="ai">AI pictures, still images (pollinations.ai)</option>
           <option value="upload">I will upload my own pictures</option>
         </select></label>
         <label>Look seed <input id="st_seed" type="number" value="7" title="Same number = same look. Change for different pictures." /></label>
