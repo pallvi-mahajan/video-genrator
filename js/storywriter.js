@@ -49,6 +49,7 @@ const ADULT = { name: "Grandma Rose", look: "a kind grandmother with grey hair i
 const BUDDY = { name: "Buzzy", look: "a tiny round honeybee with big shiny eyes and a black graduation cap" };
 const HERO_LOOK = { girl: "a cheerful 6-year-old girl with long curly dark-brown hair with a yellow flower clip, big brown eyes, wearing a pink dress",
   boy: "a cheerful 7-year-old boy with short black hair, big brown eyes, wearing a blue t-shirt and jeans" };
+const BOY_NAMES = "arjun|aarav|kabir|rohan|ravi|rahul|vivaan|aditya|ali|omar|noah|liam|leo|max|sam|tom|ben|jack|ethan|lucas|oliver|james|jake|ryan|adam|dev|ishaan|krish|neil|sid|yash|zayn|daniel|david|mohan|raju";
 const STOP = new Set(["A", "An", "The", "One", "Once", "When", "How", "Why", "My", "Our", "Story", "Learn", "Learns", "Today"]);
 
 /** Returns { title, ending, characters, scenes } in the same shape as parseScript(). */
@@ -57,7 +58,8 @@ export function writeLocalStory(idea, nScenes = 6, userChars = []) {
   const low = text.toLowerCase();
   const lesson = LESSONS.find((l) => l.re.test(low)) || LESSONS.find((l) => l.key === "kind");
   const nameInIdea = (text.match(/\b[A-Z][a-z]{2,}\b/g) || []).find((w) => !STOP.has(w));
-  const boy = /\b(he|his|him|boy)\b/.test(low) && !/\b(she|her|girl)\b/.test(low);
+  const boyName = new RegExp(`^(${BOY_NAMES})$`, "i").test(nameInIdea || "");
+  const boy = (/\b(he|his|him|boy)\b/.test(low) || boyName) && !/\b(she|her|girl)\b/.test(low);
   const hero = userChars[0] || { name: nameInIdea || (boy ? "Arjun" : "Mia"), look: HERO_LOOK[boy ? "boy" : "girl"] };
   const heroBoy = /\b(boy|he|his)\b/i.test(hero.look) || boy;
   const friend = userChars[1] || FRIENDS[heroBoy ? "boy" : "girl"];

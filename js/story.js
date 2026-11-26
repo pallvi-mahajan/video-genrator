@@ -1,15 +1,15 @@
 // Story reel: idea or script -> cast with fixed looks -> cinematic AI pictures per scene -> voices -> animated reel.
-import { VOICES, chime, envelope, scheduleMusic, speakLines } from "./audio.js?v=12";
-import { drawCharacter } from "./characters.js?v=12";
-import { drawScene } from "./scenes.js?v=12";
-import { writeLocalStory } from "./storywriter.js?v=12";
+import { VOICES, chime, envelope, scheduleMusic, speakLines } from "./audio.js?v=13";
+import { drawCharacter } from "./characters.js?v=13";
+import { drawScene } from "./scenes.js?v=13";
+import { writeLocalStory } from "./storywriter.js?v=13";
 
 const $ = (id) => document.getElementById(id);
 const IMG_API = "https://image.pollinations.ai/prompt/";
 const TEXT_API = "https://text.pollinations.ai/";
 const FREE_GAP_MS = 46_000; // free image service: 1 picture per 45 s per visitor
 const FADE = 1.0;
-const load3D = () => import("./three3d.js?v=12");
+const load3D = () => import("./three3d.js?v=13");
 
 export const STYLES = {
   cinematic: "cinematic film still from a Disney Pixar 3D animated feature film, Pixar character design, adorable expressive faces, " +
