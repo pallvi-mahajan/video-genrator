@@ -53,11 +53,18 @@ const BOY_NAMES = "arjun|aarav|kabir|rohan|ravi|rahul|vivaan|aditya|ali|omar|noa
 const STOP = new Set(["A", "An", "The", "One", "Once", "When", "How", "Why", "My", "Our", "Story", "Learn", "Learns", "Today",
   "She", "He", "They", "Girl", "Boy", "Little", "Kid", "Child"]);
 const AGE_RE = /\b(?:at\s+)?(?:the\s+)?age\s+(?:of\s+)?(\d{1,2})\b|\b(\d{1,2})[- ]?(?:years?|yrs?)[- ]?old\b/i;
-const SKILL_RE = /\blearn(?:s|ed|t|ing)?\s+(?:how\s+)?(?:to\s+)?([a-z][a-z' ]*?)\s*(?:$|[.!?,]|\b(?:at|when|with|from|in|on|because|after|before|by|for)\b)/;
+const SKILL_RE = /\b(?:(?:learn|lear|lern|leran|larn|leanr)(?:s|ed|t|ing)?\s+(?:how\s+)?(?:to\s+)?|(?:wants?|wanted|tries|tried|try|trying)\s+to\s+|how\s+to\s+)([a-z][a-z' ]*?)\s*(?:$|[.!?,]|\b(?:at|when|with|from|in|on|because|after|before|by|for)\b)/;
+const HELPERS = [
+  [/mother|mom|mum|mummy|mama|ammi|maa/, { name: "Mom", look: "a kind young mother with long dark hair tied back, warm brown eyes, wearing a soft green dress and an apron" }],
+  [/father|dad|daddy|papa|abbu/, { name: "Dad", look: "a kind father with short black hair, a neat beard, warm brown eyes and a blue shirt" }],
+  [/grandma|grandmother|granny|nani|dadi/, { name: "Grandma Rose", look: "a kind grandmother with grey hair in a bun, round glasses and a purple shawl" }],
+  [/grandpa|grandfather|nana|dada/, { name: "Grandpa", look: "a kind grandfather with white hair, round glasses and a brown sweater" }],
+  [/teacher|coach|aunt|aunty|auntie|uncle/, { name: "Teacher", look: "a friendly teacher with glasses, a warm smile and a yellow cardigan" }],
+];
 const SKILL_PLACES = [
   [/cook|rice|bak|cake|roti|bread|tea\b|soup|food|pancake|cookie|dal|curry|noodle|egg|sandwich|breakfast|lunch|dinner/, "bright cozy kitchen with pots, pans and colourful spices"],
   [/swim/, "sunny swimming pool with sparkling blue water"],
-  [/ride|cycl|bike|skate/, "sunny park path with trees and flowers"],
+  [/ride|cycl|bike|skate|kite|fly\b/, "sunny park with green grass, trees and flowers"],
   [/read|writ|spell|math|count|homework|study/, "cozy room with a little desk and a bookshelf"],
   [/draw|paint|colou?r/, "bright art room with paints and paper"],
   [/danc|sing|music|piano|guitar|violin|drum/, "colourful music room with instruments"],
@@ -74,7 +81,9 @@ export function writeLocalStory(idea, nScenes = 6, userChars = []) {
   const skill = low.match(SKILL_RE)?.[1].trim();
   const handsOn = skill && /^(make|cook|bake|prepare|ride|swim|play|draw|paint|read|write|sing|dance|tie|grow|plant|build)\b/.test(skill);
   const lesson = handsOn ? null : LESSONS.find((l) => l.re.test(skill || low)) || (skill ? null : LESSONS.find((l) => l.key === "kind"));
-  const lowName = text.match(/^([a-z]{3,})\s+(?:learn|learns|learned|learnt|wants|tries|is|goes|loves|finds|makes|gets|and)\b/i)?.[1];
+  const lowName = text.match(/^([a-z]{3,})\s+(?:lea?rn?\w*|lern\w*|wants|tries|is|goes|loves|finds|makes|gets|and)\b/i)?.[1];
+  const helperWord = low.match(/\bwith\s+(?:her|his|my|their|the)\s+([a-z]+)/)?.[1];
+  const helper = helperWord && HELPERS.find(([re]) => re.test(helperWord))?.[1];
   const nameInIdea = (text.match(/\b[A-Z][a-z]{2,}\b/g) || []).find((w) => !STOP.has(w)) ||
     (lowName && !STOP.has(cap(lowName.toLowerCase())) ? cap(lowName.toLowerCase()) : undefined);
   const boyName = new RegExp(`^(${BOY_NAMES})$`, "i").test(nameInIdea || "");
@@ -82,7 +91,7 @@ export function writeLocalStory(idea, nScenes = 6, userChars = []) {
   const aged = (look) => (age ? look.replace(/\b\d+-year-old\b/, `${age}-year-old`) : look);
   const hero = userChars[0] || { name: nameInIdea || (boy ? "Arjun" : "Mia"), look: aged(HERO_LOOK[boy ? "boy" : "girl"]) };
   const heroBoy = /\b(boy|he|his)\b/i.test(hero.look) || boy;
-  const adult = userChars.slice(1).find((c) => /grand|mom|dad|mother|father|teacher/i.test(c.name + c.look)) || ADULT;
+  const adult = userChars.slice(1).find((c) => /grand|mom|dad|mother|father|teacher/i.test(c.name + c.look)) || helper || ADULT;
   const defFriend = FRIENDS[heroBoy ? "boy" : "girl"];
   const friend = userChars.slice(1).find((c) => c !== adult) || { ...defFriend, look: aged(defFriend.look) };
   const buddy = userChars.find((c) => c !== hero && c !== friend && c !== adult) || BUDDY;
@@ -155,7 +164,8 @@ function skillScenes({ skill, low, age, H, F, A, B, she, her, self }) {
 /** A moral story (sharing, saying sorry, being brave...) built from one of the LESSONS. */
 function lessonScenes({ lesson, low, H, F, A, B, her }) {
   const word = low.match(/\b(?:her|his|the|my|their)\s+([a-z]+)\b/)?.[1];
-  const obj = (word && !lesson.re.test(word) ? word : lesson.object).replace(/^toy$/, "toys");
+  const person = word && HELPERS.some(([re]) => re.test(word)) || /^(friend|friends|brother|sister|family|baby)$/.test(word || "");
+  const obj = (word && !person && !lesson.re.test(word) ? word : lesson.object).replace(/^toy$/, "toys");
   const fill = (s) => s.replace(/\{obj\}/g, obj).replace(/Leo/g, F).replace(/\bher\b/g, her);
   const place = lesson.place;
   const all = [
