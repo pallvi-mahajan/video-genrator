@@ -774,7 +774,7 @@ export function buildScene3D(spec, cast, W, H) {
   const k = sceneKind(spec.text);
   const anim = buildWorld(scene, k, 7 + spec.index * 13);
   const lower = spec.text.toLowerCase();
-  let present = cast.filter((c) => new RegExp(`\\b${c.name}\\b`, "i").test(spec.text) || spec.speakers.includes(c.name));
+  let present = cast.filter((c) => new RegExp(`\\b${c.name}\\b`, "i").test(spec.visual ?? spec.text) || spec.speakers.includes(c.name));
   if (!present.length && cast.length) present = [cast[0]];
   present = present.slice(0, 4);
   const actors = present.map((p, i) => {

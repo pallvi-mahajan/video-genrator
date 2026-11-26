@@ -1,14 +1,15 @@
 // Story reel: idea or script -> cast with fixed looks -> cinematic AI pictures per scene -> voices -> animated reel.
-import { VOICES, chime, envelope, scheduleMusic, speakLines } from "./audio.js";
-import { drawCharacter } from "./characters.js";
-import { drawScene } from "./scenes.js";
+import { VOICES, chime, envelope, scheduleMusic, speakLines } from "./audio.js?v=11";
+import { drawCharacter } from "./characters.js?v=11";
+import { drawScene } from "./scenes.js?v=11";
+import { writeLocalStory } from "./storywriter.js?v=11";
 
 const $ = (id) => document.getElementById(id);
 const IMG_API = "https://image.pollinations.ai/prompt/";
 const TEXT_API = "https://text.pollinations.ai/";
 const FREE_GAP_MS = 46_000; // free image service: 1 picture per 45 s per visitor
 const FADE = 1.0;
-const load3D = () => import("./three3d.js");
+const load3D = () => import("./three3d.js?v=11");
 
 export const STYLES = {
   cinematic: "cinematic film still from a Disney Pixar 3D animated feature film, Pixar character design, adorable expressive faces, " +
@@ -130,22 +131,18 @@ async function writeScript(idea, nScenes, chars) {
     "### Scene N - Title\nVisual prompt: one vivid cinematic sentence (setting, action, emotion, lighting)\nNarration: \"...\"\n" +
     "Dialogue:\nName: \"...\"\nSound: ...\n...and finally: Ending text: \"The End\". Keep lines short and child friendly.";
   try {
-    const r = await fetch(TEXT_API + encodeURIComponent(ask) + "?seed=" + Math.floor(Math.random() * 1e6));
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 20000);
+    const r = await fetch(TEXT_API + encodeURIComponent(ask) + "?seed=" + Math.floor(Math.random() * 1e6), { signal: ctrl.signal });
+    clearTimeout(timer);
     if (r.ok) {
       const parsed = parseScript(await r.text());
-      if (parsed) return parsed;
+      if (parsed && parsed.scenes.length >= Math.min(3, nScenes) && parsed.scenes.every((sc) => sc.lines.length)) return parsed;
     }
   } catch (e) {
-    console.warn("text AI not reachable", e);
+    console.warn("text AI not reachable, using the built-in story writer", e);
   }
-  const sentences = idea.match(/[^.!?]+[.!?]*/g)?.map((s) => s.trim()).filter(Boolean) || [idea];
-  const n = Math.max(sentences.length, Math.min(nScenes, 3));
-  const who = chars.map((c) => c.name).join(" and ");
-  return { title: "", ending: "The End", characters: chars, scenes: Array.from({ length: n }, (_, i) => {
-    const s = sentences[i % sentences.length];
-    return { heading: "", visual: who ? `${who}: ${s}` : s, lines: i < sentences.length ? [{ speaker: "Narrator", text: s }] : [],
-      sound: "", minDur: 0 };
-  }) };
+  return writeLocalStory(idea, nScenes, chars);
 }
 
 // ---------------------------------------------------------------- cast & voices
@@ -342,7 +339,7 @@ function showOnStage(i) {
 
 function spec3D(i) {
   const s = story.data.scenes[i];
-  return { text: `${s.visual} ${s.sound} ${s.lines.map((l) => l.text).join(" ")}`, index: i, count: story.data.scenes.length,
+  return { text: `${s.visual} ${s.sound} ${s.lines.map((l) => l.text).join(" ")}`, visual: s.visual, index: i, count: story.data.scenes.length,
     speakers: [...new Set(s.lines.map((l) => l.speaker).filter((n) => n !== "Narrator"))] };
 }
 
@@ -358,6 +355,7 @@ async function picture3D(i) {
     return snap;
   } catch (e) {
     console.error("3D failed", e);
+    setStatus("3D could not start in this browser (" + e.message + "). Using simple drawings. Try Chrome or Edge, and enable hardware acceleration.", null, true);
     return backupPicture(story.data.scenes[i], story.cast, W, H, i);
   }
 }

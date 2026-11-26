@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Character Video Maker - free, in your browser</title>
 <meta name="description" content="Make talking character videos for free: cartoon characters or your own photo, AI voice, mouth movement, music. Runs in your browser." />
-<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="style.css?v=11" />
 </head>
 <body>
 <header>
@@ -203,11 +203,11 @@
   </section>
 </main>
 <footer>
-  Everything runs on your own device. Nothing is uploaded. Voice: <a href="https://huggingface.co/hexgrad/Kokoro-82M" target="_blank" rel="noopener">Kokoro-82M</a> (Apache-2.0).
+  Version 11. Everything runs on your own device. Nothing is uploaded. Voice: <a href="https://huggingface.co/hexgrad/Kokoro-82M" target="_blank" rel="noopener">Kokoro-82M</a> (Apache-2.0).
 </footer>
-<script type="module" src="js/app.js"></script>
+<script type="module" src="js/app.js?v=11"></script>
 <script type="module">
-  import { initStory } from "./js/story.js";
+  import { initStory } from "./js/story.js?v=11";
   initStory();
   const tabs = { story: ["tab_story", "story_section"], single: ["tab_single", "single_section"] };
   for (const [mode, [tab]] of Object.entries(tabs)) {
