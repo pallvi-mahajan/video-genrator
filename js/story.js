@@ -1,15 +1,15 @@
 // Story reel: idea or script -> cast with fixed looks -> cinematic AI pictures per scene -> voices -> animated reel.
-import { VOICES, chime, envelope, scheduleMusic, speakLines } from "./audio.js?v=11";
-import { drawCharacter } from "./characters.js?v=11";
-import { drawScene } from "./scenes.js?v=11";
-import { writeLocalStory } from "./storywriter.js?v=11";
+import { VOICES, chime, envelope, scheduleMusic, speakLines } from "./audio.js?v=12";
+import { drawCharacter } from "./characters.js?v=12";
+import { drawScene } from "./scenes.js?v=12";
+import { writeLocalStory } from "./storywriter.js?v=12";
 
 const $ = (id) => document.getElementById(id);
 const IMG_API = "https://image.pollinations.ai/prompt/";
 const TEXT_API = "https://text.pollinations.ai/";
 const FREE_GAP_MS = 46_000; // free image service: 1 picture per 45 s per visitor
 const FADE = 1.0;
-const load3D = () => import("./three3d.js?v=11");
+const load3D = () => import("./three3d.js?v=12");
 
 export const STYLES = {
   cinematic: "cinematic film still from a Disney Pixar 3D animated feature film, Pixar character design, adorable expressive faces, " +
@@ -347,6 +347,7 @@ function spec3D(i) {
 async function picture3D(i) {
   const [W, H] = FORMATS[$("st_format").value];
   try {
+    await new Promise((r) => setTimeout(r, 50)); // let the page breathe between scenes (keeps it responsive)
     const { buildScene3D } = await load3D();
     const sc = buildScene3D(spec3D(i), story.cast, W, H);
     const snap = sc.snapshot();
@@ -695,6 +696,10 @@ async function buildTimeline(ac) {
         buffer.copyToChannel(a.samples, 0);
       }
       a.cues.forEach((c) => cues.push({ ...c, start: c.start + start + lead, end: c.end + start + lead, sceneIndex: i }));
+    }
+    if (three3d) {
+      setStatus(`Preparing 3D scene ${i + 1} of ${story.data.scenes.length}...`);
+      await new Promise((r) => setTimeout(r, 30));
     }
     const three = story.pictures[i]?.is3D ? three3d.buildScene3D(spec3D(i), story.cast, W, H) : null;
     scenes.push({ img: story.pictures[i], three, env: three && buffer ? envelope(buffer) : null, start, lead, dur, buffer, mood: moodOf(s.sound),

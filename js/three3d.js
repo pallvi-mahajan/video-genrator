@@ -458,7 +458,6 @@ function mushroom(parent, x, z, s, glow) {
   mesh(new THREE.CylinderGeometry(0.06, 0.08, 0.25, 10), mat("#f3ead8"), g, [0, 0.12, 0]);
   const cap = mat(glow ? "#b06cff" : "#e0403a", glow ? { emissive: "#9b4dff", emissiveIntensity: 0.9 } : {});
   mesh(new THREE.SphereGeometry(0.2, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2), cap, g, [0, 0.24, 0]);
-  if (glow) g.add(light("#c58bff", 1.2, 2, 0, 0.4, 0));
   parent.add(g);
 }
 
@@ -505,13 +504,13 @@ function buildWorld(scene, k, seed) {
   ground.castShadow = false;
 
   if (k.env === "forest" || k.env === "meadow") {
-    const n = k.env === "forest" ? 26 : 9;
+    const n = k.env === "forest" ? 16 : 8;
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI - Math.PI + (r() - 0.5) * 0.3;
       const d = 4.5 + r() * 9;
       tree(world, Math.cos(a) * d * 1.4, Math.sin(a) * d - 1, 0.8 + r() * 0.9, r, k.time === "night");
     }
-    flowers(world, k.env === "meadow" ? 60 : 30, r, 10);
+    flowers(world, k.env === "meadow" ? 26 : 14, r, 10);
     for (let i = 0; i < 5; i++) mushroom(world, (r() - 0.5) * 6, -1 - r() * 3, 0.8 + r() * 1.4, k.magic || k.time !== "day");
   }
   if (k.mountain) for (let i = 0; i < 5; i++) {
@@ -836,7 +835,7 @@ export function buildScene3D(spec, cast, W, H) {
       const c = document.createElement("canvas");
       c.width = W;
       c.height = H;
-      for (let i = 0; i < 40; i++) this.render(c.getContext("2d"), at + i * 0.02, at, 0.3, null, 0);
+      for (let i = 0; i < 3; i++) this.render(c.getContext("2d"), at + i * 0.02, at, 0.3, null, 0);
       return c;
     },
     dispose() {
