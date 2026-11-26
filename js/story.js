@@ -195,6 +195,7 @@ async function aiPicture(prompt, w, h, seed, onWait) {
     if (networkFails >= 3) throw new Error(BLOCKED);
     const wait = lastImageAt + FREE_GAP_MS - Date.now();
     for (let s = Math.ceil(wait / 1000); s > 0; s--) {
+      if (story.cancelled) throw new Error("Stopped.");
       onWait?.(s);
       await sleep(1000);
     }
@@ -289,6 +290,7 @@ function renderScenes() {
         <textarea rows="3" data-visual="${i}">${esc(s.visual)}</textarea>
         <div class="lines">${s.lines.map((l) => `<div><b>${esc(l.speaker)}:</b> ${esc(l.text)}</div>`).join("") || "<i>(no speech)</i>"}</div>
         <div class="scene-actions">
+          <button type="button" class="small hidden" data-ok="${i}">Looks good, make next scene</button>
           <button type="button" class="secondary small" data-regen="${i}">New picture</button>
           <label class="small-upload">Upload my picture<input type="file" accept="image/*" data-upload="${i}" /></label>
           <span class="hint" id="st_pstatus_${i}"></span>
@@ -299,9 +301,16 @@ function renderScenes() {
     story.data.scenes[+el.dataset.visual].visual = el.value;
   }));
   $("st_scenes").querySelectorAll("[data-regen]").forEach((el) => el.addEventListener("click", () => {
-    story.pictures[+el.dataset.regen] = null;
+    const i = +el.dataset.regen;
+    story.pictures[i] = null;
+    story.approved[i] = false;
     story.seedBump = (story.seedBump || 0) + 1;
-    showThumb(+el.dataset.regen);
+    showThumb(i);
+    paintAll();
+  }));
+  $("st_scenes").querySelectorAll("[data-ok]").forEach((el) => el.addEventListener("click", () => {
+    story.approved[+el.dataset.ok] = true;
+    showThumb(+el.dataset.ok);
     paintAll();
   }));
   $("st_scenes").querySelectorAll("[data-upload]").forEach((el) => el.addEventListener("change", async () => {
@@ -309,7 +318,25 @@ function renderScenes() {
     if (!el.files[0]) return;
     story.pictures[i] = await loadBlobImage(el.files[0]);
     showThumb(i);
+    showOnStage(i);
   }));
+  $("st_scenes").querySelectorAll(".thumb").forEach((el, i) => el.addEventListener("click", () => showOnStage(i)));
+}
+
+const stepMode = () => $("st_step").checked;
+
+/** Shows a scene's picture large in the preview area (for checking it). */
+function showOnStage(i) {
+  const img = story.pictures[i];
+  if (!img || story.busy) return;
+  const [W, H] = FORMATS[$("st_format").value];
+  const c = $("stage");
+  c.width = W;
+  c.height = H;
+  const ctx = c.getContext("2d");
+  drawCover(ctx, img, W, H, "in", 0.3);
+  if ($("st_cinematic").checked) cinematic(ctx, W, H, 0, W > H);
+  bigText(ctx, `Scene ${i + 1}`, W, H, 0.9, 0.1, 0.6);
 }
 
 function showThumb(i) {
@@ -321,7 +348,14 @@ function showThumb(i) {
     const el = img instanceof HTMLCanvasElement ? new Image() : img.cloneNode();
     if (img instanceof HTMLCanvasElement) el.src = img.toDataURL("image/jpeg", 0.7);
     box.appendChild(el);
-    $(`st_pstatus_${i}`).textContent = img instanceof HTMLCanvasElement ? "drawn backup picture" : "";
+    $(`st_pstatus_${i}`).textContent = (img instanceof HTMLCanvasElement ? "drawn backup picture. " : "") +
+      (stepMode() && !story.approved[i] ? "Check this scene in the preview." : stepMode() ? "Approved" : "");
+  }
+  const ok = document.querySelector(`[data-ok="${i}"]`);
+  if (ok) {
+    const last = i === story.data.scenes.length - 1;
+    ok.textContent = last ? "Looks good, all scenes done" : "Looks good, make next scene";
+    ok.classList.toggle("hidden", !img || !stepMode() || !!story.approved[i]);
   }
   updateReady();
 }
@@ -332,7 +366,9 @@ async function paintAll() {
   const [W, H, w, h] = FORMATS[$("st_format").value];
   const seed = (+$("st_seed").value || 7) + (story.seedBump || 0);
   for (let i = 0; i < story.data.scenes.length; i++) {
-    if (story.pictures[i] || job !== story.jobId) continue;
+    if (job !== story.jobId) return false;
+    if (stepMode() && i > 0 && !story.approved[i - 1]) break; // wait until the previous scene is approved
+    if (story.pictures[i]) continue;
     const st = $(`st_pstatus_${i}`);
     if ($("st_source").value === "upload") {
       st.textContent = "Please upload a picture";
@@ -349,21 +385,32 @@ async function paintAll() {
         st.textContent = `Waiting ${s}s (free service: 1 picture every 45 s)...`;
       });
     } catch (e) {
+      if (story.cancelled) return false;
       if (e.message === BLOCKED) story.backup = true;
       setStatus(e.message, null, e.message !== BLOCKED);
       story.pictures[i] = backupPicture(story.data.scenes[i], story.cast, W, H, i);
     }
     if (job !== story.jobId) return false;
     showThumb(i);
+    if (stepMode()) {
+      showOnStage(i);
+      setStatus(`Scene ${i + 1} is ready. Check it in the preview, then press "Looks good" (or "New picture") in the scene list.`);
+      $(`st_thumb_${i}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      break;
+    }
   }
-  return story.data.scenes.every((_, i) => story.pictures[i]);
+  return story.data.scenes.every((_, i) => story.pictures[i] && (!stepMode() || story.approved[i]));
 }
 
 function updateReady() {
+  const n = story.data?.scenes.length || 0;
   const missing = story.data ? story.data.scenes.filter((_, i) => !story.pictures[i]).length : 1;
+  const unapproved = stepMode() && story.data ? story.data.scenes.filter((_, i) => !story.approved[i]).length : 0;
   $("st_preview").disabled = $("st_record").disabled = $("st_thumb").disabled = !story.data || missing > 0 || story.busy;
   $("st_generate").disabled = story.busy;
-  $("st_ready").textContent = !story.data ? "" : missing ? `${missing} picture(s) still being made...` : "All pictures ready.";
+  $("st_generate").textContent = stepMode() && story.data && !unapproved ? "Make the video" : "Generate video";
+  $("st_ready").textContent = !story.data ? "" : unapproved ? `${n - unapproved} of ${n} scenes approved.`
+    : missing ? `${missing} picture(s) still being made...` : "All pictures ready.";
 }
 
 async function prepare() {
@@ -378,6 +425,7 @@ async function prepare() {
   story.data = parseScript(text) || (await writeScript(text, +$("st_count").value || 6, userChars));
   story.cast = buildCast(story.data, userChars);
   story.pictures = story.data.scenes.map(() => null);
+  story.approved = story.data.scenes.map(() => false);
   story.seedBump = 0;
   story.audioKey = "";
   story.scriptKey = text + "|" + $("st_chars").value;
@@ -569,6 +617,7 @@ async function buildTimeline(ac) {
     story.audio = [];
     for (let i = 0; i < story.data.scenes.length; i++) {
       const lines = story.data.scenes[i].lines;
+      if (story.cancelled) throw new Error("Stopped.");
       story.audio[i] = lines.length ? await speakLines(lines, voiceOf, (m) => setStatus(`Scene ${i + 1}: ${m}`)) : null;
     }
     story.audioKey = key;
@@ -622,7 +671,7 @@ function play(record, autoDownload = false) {
       tl = await buildTimeline(ac);
     } catch (e) {
       console.error(e);
-      setStatus("Could not create the voices: " + e.message, 0, true);
+      setStatus(story.cancelled ? "Stopped." : "Could not create the voices: " + e.message, 0, !story.cancelled);
       story.busy = window.__cvRunning = false;
       updateReady();
       ac.close();
@@ -668,6 +717,7 @@ function play(record, autoDownload = false) {
       stopped = true;
       story.busy = window.__cvRunning = false;
       $("stop_btn").onclick = null;
+      $("stop_btn").disabled = true;
       ac.close();
       updateReady();
       if (!recorder) {
@@ -713,14 +763,24 @@ async function generateAll() {
     if (!(await prepare())) return;
   }
   $("st_generate").disabled = true;
+  story.cancelled = false;
+  $("stop_btn").disabled = false;
+  $("stop_btn").onclick = () => {
+    story.cancelled = true;
+    story.jobId++;
+    setStatus("Stopped.", 0);
+  };
   setStatus("Making the pictures for every scene...", 0.1);
   const ok = await paintAll();
-  if (!ok) {
+  if (story.cancelled || !ok) {
     $("st_generate").disabled = false;
-    return setStatus("Some scenes still need a picture. Upload them in the scene list, then press Generate video again.", null, true);
+    $("stop_btn").disabled = true;
+    if (!story.cancelled && !stepMode()) setStatus("Some scenes still need a picture. Upload them in the scene list, then press Generate video again.", null, true);
+    return;
   }
   await play(true, true);
   $("st_generate").disabled = false;
+  $("stop_btn").disabled = true;
 }
 
 function thumbnail() {
@@ -766,6 +826,7 @@ export function initStory() {
     story.data.scenes.forEach((_, i) => showThumb(i));
   });
   $("st_narrator").addEventListener("change", renderCast);
+  $("st_step").addEventListener("change", () => story.data?.scenes.forEach((_, i) => showThumb(i)));
   updateReady();
   const c = $("stage");
   [c.width, c.height] = [720, 1280];
