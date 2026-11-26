@@ -618,7 +618,7 @@ function buildWorld(scene, k, seed) {
   const sun = new THREE.DirectionalLight(k.time === "twilight" ? "#ffb07a" : night ? "#9fb4ff" : "#fff1d6", night ? 1.4 : 2.6);
   sun.position.set(-4, 7, 5);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(1024, 1024);
+  sun.shadow.mapSize.set(768, 768);
   Object.assign(sun.shadow.camera, { left: -6, right: 6, top: 6, bottom: -6, near: 1, far: 30 });
   sun.shadow.bias = -0.0005;
   scene.add(sun);
@@ -748,6 +748,18 @@ function animate(c, t, s) {
 
 // ---------------------------------------------------------------- renderer + scene assembly
 let renderer = null;
+let quality = 1; // drops automatically on slow computers (smaller render, no shadows) so the page keeps responding
+let slowFrames = 0;
+
+function adapt(ms) {
+  slowFrames = ms > 70 ? slowFrames + 1 : Math.max(0, slowFrames - 1);
+  if (slowFrames > 8 && quality > 0.5) {
+    quality = quality > 0.75 ? 0.7 : 0.5;
+    if (quality <= 0.5 && renderer) renderer.shadowMap.enabled = false;
+    slowFrames = 0;
+    console.info("3D quality lowered to", quality);
+  }
+}
 
 function getRenderer(W, H) {
   if (!renderer) {
@@ -759,8 +771,9 @@ function getRenderer(W, H) {
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.setPixelRatio(1);
   }
+  const w = Math.round(W * quality), h = Math.round(H * quality);
   const size = renderer.getSize(new THREE.Vector2());
-  if (size.x !== W || size.y !== H) renderer.setSize(W, H, false);
+  if (size.x !== w || size.y !== h) renderer.setSize(w, h, false);
   return renderer;
 }
 
@@ -828,8 +841,10 @@ export function buildScene3D(spec, cast, W, H) {
       }
       shot(t, local, prog, speaker);
       const r = getRenderer(W, H);
+      const t0 = performance.now();
       r.render(scene, camera);
       ctx.drawImage(r.domElement, 0, 0, W, H);
+      adapt(performance.now() - t0);
     },
     snapshot(at = 1.2) {
       const c = document.createElement("canvas");

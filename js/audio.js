@@ -18,19 +18,59 @@ export const VOICES = {
 };
 
 let ttsPromise = null;
+let worker = null;
+let workerProgress = null;
+const pending = new Map();
+let nextId = 1;
+
+/** Voice model in a background Web Worker (page stays responsive). Same API as KokoroTTS: generate(text, {voice, speed}). */
+function workerTTS(onProgress) {
+  workerProgress = onProgress;
+  if (!worker) {
+    worker = new Worker(new URL("./ttsworker.js?v=14", import.meta.url), { type: "module" });
+    worker.onmessage = ({ data }) => {
+      if (data.progress !== undefined) return workerProgress?.(data.progress);
+      const p = pending.get(data.id);
+      if (!p) return;
+      pending.delete(data.id);
+      data.error ? p.reject(new Error(data.error)) : p.resolve(data);
+    };
+    worker.onerror = (e) => {
+      for (const p of pending.values()) p.reject(new Error(e.message || "voice worker failed"));
+      pending.clear();
+    };
+  }
+  const call = (msg) => new Promise((resolve, reject) => {
+    const id = nextId++;
+    pending.set(id, { resolve, reject });
+    worker.postMessage({ ...msg, id });
+  });
+  return call({ warmup: true }).then(() => ({
+    generate: (text, { voice, speed }) => call({ text, voice, speed }).then((d) => ({ audio: d.audio, sampling_rate: d.rate })),
+  }));
+}
 
 export function loadTTS(onProgress) {
-  ttsPromise ??= import(KOKORO_URL).then(({ KokoroTTS }) =>
+  ttsPromise ??= workerTTS(onProgress).catch((err) => {
+    console.warn("voice worker unavailable, using the page thread", err);
+    worker?.terminate();
+    worker = null;
+    return mainThreadTTS(onProgress);
+  }).catch((err) => {
+    ttsPromise = null;
+    throw err;
+  });
+  return ttsPromise;
+}
+
+function mainThreadTTS(onProgress) {
+  return import(KOKORO_URL).then(({ KokoroTTS }) =>
     KokoroTTS.from_pretrained(MODEL_ID, {
       dtype: "q8",
       device: "wasm",
       progress_callback: (e) => e.status === "progress" && e.file?.endsWith(".onnx") && onProgress?.(e.progress / 100),
     }),
-  ).catch((err) => {
-    ttsPromise = null;
-    throw err;
-  });
-  return ttsPromise;
+  );
 }
 
 export function splitSentences(text) {

@@ -1,6 +1,6 @@
-import { CHARACTERS, drawCharacter } from "./characters.js?v=13";
-import { SCENES, drawScene } from "./scenes.js?v=13";
-import { MUSIC, VOICES, envelope, scheduleMusic, synthesize } from "./audio.js?v=13";
+import { CHARACTERS, drawCharacter } from "./characters.js?v=14";
+import { SCENES, drawScene } from "./scenes.js?v=14";
+import { MUSIC, VOICES, envelope, scheduleMusic, synthesize } from "./audio.js?v=14";
 
 const $ = (id) => document.getElementById(id);
 const MOTIONS = { talk: "Talk / idle", dance: "Dance", wave: "Wave hello", jump: "Jump", walk: "Walk" };
