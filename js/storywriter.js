@@ -70,6 +70,26 @@ const SKILL_PLACES = [
   [/danc|sing|music|piano|guitar|violin|drum/, "colourful music room with instruments"],
   [/plant|garden|grow|flower/, "sunny garden with flowers and vegetables"],
 ];
+const HANDS_ON = /^(make|cook|bake|prepare|ride|swim|play|draw|paint|read|write|sing|dance|tie|grow|plant|build|wash|clean|fly|climb)\b/;
+const E_VERBS = new Set("make bake ride dance write drive take share smile wave save use hide skate prepare serve give live move slice".split(" "));
+const STOP_AT = /\s*(?:$|[.!?,]|\b(?:at|when|with|from|in|on|because|after|before|by|for)\b)/;
+/** "making" / "makes" -> "make", "swimming" -> "swim", "washes" -> "wash". */
+function baseVerb(w) {
+  if (/ing$/.test(w) && w.length > 5) {
+    const s = w.slice(0, -3).replace(/([bdgkmnprt])\1$/, "$1");
+    return E_VERBS.has(s + "e") ? s + "e" : s;
+  }
+  if (/(sh|ch|ss|x)es$/.test(w)) return w.slice(0, -2);
+  if (/ies$/.test(w)) return w.slice(0, -3) + "y";
+  return /[^s]s$/.test(w) ? w.slice(0, -1) : w;
+}
+/** "inayat is making rice with her mother" -> "make rice" (the action of a plain sentence theme). */
+function actionOf(low, name) {
+  const rest = name ? low.replace(new RegExp(`^.*?\\b${name.toLowerCase()}\\b\\s*`), "") : low;
+  const m = rest.match(new RegExp(`^(?:(?:is|was|will|goes to|went to)\\s+)?([a-z]+)(?:\\s+(?!(?:at|when|with|from|in|on|by|for)\\b)([a-z][a-z' ]*?))?${STOP_AT.source}`));
+  if (!m || !(/(ing|s)$/.test(m[1]) || HANDS_ON.test(m[1]))) return null;
+  return [baseVerb(m[1]), m[2]?.trim()].filter(Boolean).join(" ");
+}
 const cap = (w) => w[0].toUpperCase() + w.slice(1);
 const titleCase = (s) => s.split(" ").map((w, i) => (i && /^(a|an|the|to|of|and|in|on)$/.test(w) ? w : cap(w))).join(" ");
 
@@ -78,14 +98,16 @@ export function writeLocalStory(idea, nScenes = 6, userChars = []) {
   const text = idea.trim();
   const age = +(text.match(AGE_RE)?.slice(1).find(Boolean) || 0);
   const low = text.toLowerCase().replace(AGE_RE, " ").replace(/\s+/g, " ").trim();
-  const skill = low.match(SKILL_RE)?.[1].trim();
-  const handsOn = skill && /^(make|cook|bake|prepare|ride|swim|play|draw|paint|read|write|sing|dance|tie|grow|plant|build)\b/.test(skill);
-  const lesson = handsOn ? null : LESSONS.find((l) => l.re.test(skill || low)) || (skill ? null : LESSONS.find((l) => l.key === "kind"));
-  const lowName = text.match(/^([a-z]{3,})\s+(?:lea?rn?\w*|lern\w*|wants|tries|is|goes|loves|finds|makes|gets|and)\b/i)?.[1];
-  const helperWord = low.match(/\bwith\s+(?:her|his|my|their|the)\s+([a-z]+)/)?.[1];
-  const helper = helperWord && HELPERS.find(([re]) => re.test(helperWord))?.[1];
+  const lowName = text.match(/^([a-z]{3,})\s+(?:lea?rn?\w*|lern\w*|wants|tries|is|was|goes|loves|finds|\w+s|\w+ing|and)\b/i)?.[1];
   const nameInIdea = (text.match(/\b[A-Z][a-z]{2,}\b/g) || []).find((w) => !STOP.has(w)) ||
     (lowName && !STOP.has(cap(lowName.toLowerCase())) ? cap(lowName.toLowerCase()) : undefined);
+  const learnt = low.match(SKILL_RE)?.[1].trim();
+  const handsOn = (s) => s && HANDS_ON.test(s);
+  const lesson = handsOn(learnt) ? null : LESSONS.find((l) => l.re.test(learnt || low));
+  const skill = learnt || (lesson ? null : actionOf(low, nameInIdea));
+  const finalLesson = lesson || (skill ? null : LESSONS.find((l) => l.key === "kind"));
+  const helperWord = low.match(/\b(?:with|for|and)\s+(?:her|his|my|their|the)\s+([a-z]+)/)?.[1];
+  const helper = helperWord && HELPERS.find(([re]) => re.test(helperWord))?.[1];
   const boyName = new RegExp(`^(${BOY_NAMES})$`, "i").test(nameInIdea || "");
   const boy = (/\b(he|his|him|boy)\b/.test(low) || boyName) && !/\b(she|her|girl)\b/.test(low);
   const aged = (look) => (age ? look.replace(/\b\d+-year-old\b/, `${age}-year-old`) : look);
@@ -97,8 +119,8 @@ export function writeLocalStory(idea, nScenes = 6, userChars = []) {
   const buddy = userChars.find((c) => c !== hero && c !== friend && c !== adult) || BUDDY;
   const H = hero.name, F = friend.name, A = adult.name, B = buddy.name;
   const she = heroBoy ? "he" : "she", her = heroBoy ? "his" : "her";
-  const { all, extra, title } = lesson
-    ? lessonScenes({ lesson, low, H, F, A, B, her })
+  const { all, extra, title } = finalLesson
+    ? lessonScenes({ lesson: finalLesson, low, H, F, A, B, her })
     : skillScenes({ skill, low, age, H, F, A, B, she, her, self: heroBoy ? "himself" : "herself" });
   const order = nScenes <= 3 ? [0, 1, 5] : nScenes === 4 ? [0, 1, 4, 5] : nScenes === 5 ? [0, 1, 3, 4, 5] : [0, 1, 2, 3, 4, 5];
   const scenes = order.map((i) => all[i]);

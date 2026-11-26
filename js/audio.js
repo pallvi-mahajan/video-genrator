@@ -27,7 +27,7 @@ let nextId = 1;
 function workerTTS(onProgress) {
   workerProgress = onProgress;
   if (!worker) {
-    worker = new Worker(new URL("./ttsworker.js?v=16", import.meta.url), { type: "module" });
+    worker = new Worker(new URL("./ttsworker.js?v=17", import.meta.url), { type: "module" });
     worker.onmessage = ({ data }) => {
       if (data.progress !== undefined) return workerProgress?.(data.progress);
       const p = pending.get(data.id);
